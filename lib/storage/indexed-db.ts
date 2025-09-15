@@ -28,11 +28,15 @@ export class IndexedDBStorage {
   private initPromise: Promise<void> | null = null;
 
   constructor() {
+    // Defer initialization to runtime; only valid in browsers
     this.initPromise = this.initialize();
   }
 
   private async initialize(): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (typeof indexedDB === 'undefined') {
+        return reject(new Error('IndexedDB is not available in this environment'));
+      }
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onerror = () => {
@@ -430,5 +434,14 @@ export class IndexedDBStorage {
   }
 }
 
-// Singleton instance
-export const indexedDBStorage = new IndexedDBStorage();
+// Lazy, client-only singleton accessor
+let __singleton: IndexedDBStorage | null = null;
+export function getIndexedDBStorage(): IndexedDBStorage {
+  if (typeof window === 'undefined') {
+    throw new Error('IndexedDBStorage can only be used in the browser');
+  }
+  if (!__singleton) {
+    __singleton = new IndexedDBStorage();
+  }
+  return __singleton;
+}

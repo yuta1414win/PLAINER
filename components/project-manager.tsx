@@ -59,10 +59,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { formatDistanceToNowJa } from '@/lib/date';
-import {
-  indexedDBStorage,
-  type ProjectWithMetadata,
-} from '@/lib/storage/indexed-db';
+import { getIndexedDBStorage, type ProjectWithMetadata } from '@/lib/storage/indexed-db';
 import { useEditorStore } from '@/lib/store';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -102,18 +99,18 @@ export function ProjectManager({
     projects: number;
   } | null>(null);
 
-  const { setProject, resetProject } = useEditorStore();
+  const { setProject, createProject } = useEditorStore();
 
   // Load projects
   const loadProjects = useCallback(async () => {
     setIsLoading(true);
     try {
-      const allProjects = await indexedDBStorage.getAllProjects();
+      const allProjects = await getIndexedDBStorage().getAllProjects();
       setProjects(allProjects);
       setFilteredProjects(allProjects);
 
       // Get storage info
-      const info = await indexedDBStorage.getStorageInfo();
+      const info = await getIndexedDBStorage().getStorageInfo();
       setStorageInfo(info);
     } catch (error) {
       console.error('Failed to load projects:', error);
@@ -184,7 +181,7 @@ export function ProjectManager({
     if (!selectedProject) return;
 
     try {
-      await indexedDBStorage.deleteProject(selectedProject.id);
+      await getIndexedDBStorage().deleteProject(selectedProject.id);
       toast.success(`プロジェクト「${selectedProject.name}」を削除しました`);
       await loadProjects();
       setShowDeleteDialog(false);
@@ -197,7 +194,7 @@ export function ProjectManager({
 
   const handleDuplicateProject = async (project: ProjectWithMetadata) => {
     try {
-      const duplicated = await indexedDBStorage.duplicateProject(project.id);
+      const duplicated = await getIndexedDBStorage().duplicateProject(project.id);
       if (duplicated) {
         toast.success(`プロジェクト「${project.name}」を複製しました`);
         await loadProjects();
@@ -210,7 +207,7 @@ export function ProjectManager({
 
   const handleExportProject = async (project: ProjectWithMetadata) => {
     try {
-      const blob = await indexedDBStorage.exportProject(project.id);
+      const blob = await getIndexedDBStorage().exportProject(project.id);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -228,7 +225,7 @@ export function ProjectManager({
 
   const handleImportProject = async (file: File) => {
     try {
-      const imported = await indexedDBStorage.importProject(file);
+      const imported = await getIndexedDBStorage().importProject(file);
       toast.success(`プロジェクト「${imported.name}」をインポートしました`);
       await loadProjects();
     } catch (error) {
@@ -246,7 +243,7 @@ export function ProjectManager({
         name: newProjectName.trim(),
         updatedAt: new Date(),
       };
-      await indexedDBStorage.saveProject(updatedProject);
+      await getIndexedDBStorage().saveProject(updatedProject);
       toast.success('プロジェクト名を変更しました');
       await loadProjects();
       setShowRenameDialog(false);
@@ -259,7 +256,7 @@ export function ProjectManager({
   };
 
   const handleCreateNewProject = () => {
-    resetProject();
+    createProject('新しいプロジェクト');
     onOpenChange(false);
     toast.success('新しいプロジェクトを作成しました');
   };
@@ -679,7 +676,7 @@ export function ProjectManager({
                       if (
                         confirm('すべてのプロジェクトデータを削除しますか？')
                       ) {
-                        await indexedDBStorage.clear();
+                        await getIndexedDBStorage().clear();
                         await loadProjects();
                         toast.success('すべてのデータを削除しました');
                       }

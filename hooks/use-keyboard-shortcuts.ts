@@ -105,8 +105,9 @@ export const defaultShortcuts: ShortcutConfig[] = [
     category: 'ファイル',
     action: () => {
       const store = useEditorStore.getState();
-      store.saveProject();
-      toast.success('プロジェクトを保存しました');
+      // 保存先: ローカルストレージ（簡易）
+      store.saveToLocalStorage();
+      toast.success('ローカルに保存しました');
     },
   },
   {
@@ -125,7 +126,7 @@ export const defaultShortcuts: ShortcutConfig[] = [
     category: 'ファイル',
     action: () => {
       const store = useEditorStore.getState();
-      store.resetProject();
+      store.createProject('新しいプロジェクト');
       toast.success('新しいプロジェクトを作成しました');
     },
   },
@@ -296,10 +297,11 @@ export const defaultShortcuts: ShortcutConfig[] = [
     category: 'ナビゲーション',
     action: () => {
       const store = useEditorStore.getState();
-      const currentIndex = store.currentStep;
-      if (currentIndex < store.steps.length - 1) {
-        store.setCurrentStep(currentIndex + 1);
-      }
+      const project = store.project;
+      if (!project || project.steps.length === 0) return;
+      const idx = project.steps.findIndex((s) => s.id === store.currentStepId);
+      const next = idx >= 0 ? idx + 1 : 0;
+      if (next < project.steps.length) store.setCurrentStep(project.steps[next].id);
     },
   },
   {
@@ -308,10 +310,11 @@ export const defaultShortcuts: ShortcutConfig[] = [
     category: 'ナビゲーション',
     action: () => {
       const store = useEditorStore.getState();
-      const currentIndex = store.currentStep;
-      if (currentIndex > 0) {
-        store.setCurrentStep(currentIndex - 1);
-      }
+      const project = store.project;
+      if (!project || project.steps.length === 0) return;
+      const idx = project.steps.findIndex((s) => s.id === store.currentStepId);
+      const prev = idx > 0 ? idx - 1 : 0;
+      store.setCurrentStep(project.steps[prev].id);
     },
   },
   {
@@ -320,7 +323,9 @@ export const defaultShortcuts: ShortcutConfig[] = [
     category: 'ナビゲーション',
     action: () => {
       const store = useEditorStore.getState();
-      store.setCurrentStep(0);
+      const project = store.project;
+      if (!project || project.steps.length === 0) return;
+      store.setCurrentStep(project.steps[0].id);
     },
   },
   {
@@ -329,7 +334,9 @@ export const defaultShortcuts: ShortcutConfig[] = [
     category: 'ナビゲーション',
     action: () => {
       const store = useEditorStore.getState();
-      store.setCurrentStep(store.steps.length - 1);
+      const project = store.project;
+      if (!project || project.steps.length === 0) return;
+      store.setCurrentStep(project.steps[project.steps.length - 1].id);
     },
   },
   {

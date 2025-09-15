@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { ConsentBanner } from '@/components/privacy/consent-banner';
@@ -13,11 +13,15 @@ export const metadata: Metadata = {
     'Transform screenshots into interactive step-by-step guides with AI assistance',
   keywords: ['screenshot', 'guide', 'tutorial', 'ai', 'interactive'],
   authors: [{ name: 'PLAINER Team' }],
-  viewport: 'width=device-width, initial-scale=1',
   robots: {
     index: true,
     follow: true,
   },
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
 };
 
 interface RootLayoutProps {

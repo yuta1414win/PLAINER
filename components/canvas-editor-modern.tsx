@@ -377,7 +377,7 @@ export function CanvasEditorModern({
     [canvasState]
   );
 
-  // 注釈描画
+  // 注釈描画（テキストバッジ）
   const drawAnnotation = useCallback(
     (ctx: CanvasRenderingContext2D, annotation: Annotation) => {
       const { scale, offsetX, offsetY } = canvasState;
@@ -395,20 +395,37 @@ export function CanvasEditorModern({
         canvasState.selectedElement?.type === 'annotation' &&
         canvasState.selectedElement?.id === annotation.id;
 
-      // 注釈ポイント描画
-      ctx.fillStyle = isSelected ? '#3b82f6' : '#10b981';
-      ctx.beginPath();
-      ctx.arc(x, y, 8 / scale, 0, Math.PI * 2);
-      ctx.fill();
+      // フォント設定
+      const fontSize = (annotation.style?.fontSize ?? 14) / scale;
+      const fontWeight = annotation.style?.fontWeight ?? 'normal';
+      const textColor = annotation.style?.color ?? '#1f2937';
+      const background =
+        annotation.style?.backgroundColor ??
+        (isSelected ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.9)');
 
-      // 注釈番号描画
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `${12 / scale}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      const annotationNumber =
-        annotation.number !== undefined ? annotation.number.toString() : '1';
-      ctx.fillText(annotationNumber, x, y);
+      ctx.font = `${fontWeight} ${fontSize}px system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif`;
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'left';
+
+      const text = annotation.text || '';
+      const metrics = ctx.measureText(text);
+      const paddingX = 8 / scale;
+      const paddingY = 6 / scale;
+
+      // 背景バッジ
+      ctx.fillStyle = background;
+      const bgX = x - paddingX;
+      const bgY = y - metrics.actualBoundingBoxAscent - paddingY;
+      const bgW = metrics.width + paddingX * 2;
+      const bgH =
+        metrics.actualBoundingBoxAscent +
+        metrics.actualBoundingBoxDescent +
+        paddingY * 2;
+      ctx.fillRect(bgX, bgY, bgW, bgH);
+
+      // テキスト
+      ctx.fillStyle = textColor;
+      ctx.fillText(text, x, y);
 
       ctx.restore();
     },
@@ -527,16 +544,49 @@ export function CanvasEditorModern({
       if (!canvas) return;
 
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const clientX = e.clientX - rect.left;
+      const clientY = e.clientY - rect.top;
 
+      // 注釈モード: クリック位置に注釈を作成
+      if (editorMode === 'annotation') {
+        const nx = Math.max(
+          0,
+          Math.min(1, (clientX - canvasState.offsetX) / canvas.width)
+        );
+        const ny = Math.max(
+          0,
+          Math.min(1, (clientY - canvasState.offsetY) / canvas.height)
+        );
+
+        const newAnnotation: Annotation = {
+          id: (`annotation-${Date.now()}`) as any,
+          text: '新しい注釈',
+          x: nx as any,
+          y: ny as any,
+          style: {
+            color: '#1f2937',
+            fontSize: 14,
+            fontWeight: 'normal',
+          },
+        };
+        addAnnotation(step.id, newAnnotation);
+        setCanvasState((prev) => ({
+          ...prev,
+          selectedElement: { type: 'annotation', id: newAnnotation.id },
+          isDrawing: false,
+          dragStart: null,
+        }));
+        return;
+      }
+
+      // それ以外はドラッグ開始（パン等）
       setCanvasState((prev) => ({
         ...prev,
         isDrawing: true,
-        dragStart: { x, y },
+        dragStart: { x: clientX, y: clientY },
       }));
     },
-    []
+    [editorMode, canvasState.offsetX, canvasState.offsetY, addAnnotation, step.id]
   );
 
   const handleMouseMove = useCallback(

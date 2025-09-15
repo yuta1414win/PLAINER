@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useEditorStore } from '@/lib/store';
-import { indexedDBStorage } from '@/lib/storage/indexed-db';
+import { getIndexedDBStorage } from '@/lib/storage/indexed-db';
 import { toast } from 'sonner';
 // Lightweight debounce to avoid external dependency
 function debounce<T extends (...args: any[]) => void>(
@@ -40,7 +40,7 @@ export function useAutoSave(options: AutoSaveOptions = {}) {
     onError,
   } = options;
 
-  const { project, saveProject } = useEditorStore();
+  const { project, updateProject } = useEditorStore();
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [saveError, setSaveError] = useState<Error | null>(null);
@@ -61,13 +61,13 @@ export function useAutoSave(options: AutoSaveOptions = {}) {
 
     try {
       // Save to IndexedDB
-      await indexedDBStorage.saveProject(projectRef.current);
+      await getIndexedDBStorage().saveProject(projectRef.current);
 
       // Also save as autosave for recovery
-      await indexedDBStorage.saveAutoSave(projectRef.current);
+      await getIndexedDBStorage().saveAutoSave(projectRef.current);
 
-      // Update store
-      await saveProject();
+      // Update project's timestamp in store
+      updateProject({ updatedAt: new Date() });
 
       setLastSaved(new Date());
       onSave?.();
@@ -81,7 +81,7 @@ export function useAutoSave(options: AutoSaveOptions = {}) {
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, saveProject, onSave, onError]);
+  }, [isSaving, updateProject, onSave, onError]);
 
   // Debounced save for immediate changes
   const debouncedSave = useRef(
@@ -145,7 +145,7 @@ export function useAutoSave(options: AutoSaveOptions = {}) {
     if (emergencyData) {
       try {
         const project = JSON.parse(emergencyData);
-        await indexedDBStorage.saveProject(project);
+        await getIndexedDBStorage().saveProject(project);
         localStorage.removeItem('plainer_emergency_save');
         toast.success('緊急保存データを復元しました');
         return project;

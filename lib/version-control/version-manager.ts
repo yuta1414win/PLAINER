@@ -41,6 +41,9 @@ export class VersionManager {
   // Database initialization
   private async initializeDB(): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (typeof indexedDB === 'undefined') {
+        return reject(new VersionControlError('IndexedDB not available', 'DB_ERROR'));
+      }
       const request = indexedDB.open(this.dbName, this.dbVersion);
 
       request.onerror = () =>

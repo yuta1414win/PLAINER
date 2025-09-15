@@ -314,6 +314,9 @@ export class AnalyticsTracker {
 
   private async openDatabase(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
+      if (typeof indexedDB === 'undefined') {
+        return reject(new Error('IndexedDB is not available in this environment'));
+      }
       const request = indexedDB.open('PlainerAnalytics', 1);
 
       request.onerror = () => reject(request.error);
@@ -353,6 +356,9 @@ export class AnalyticsTracker {
   }> {
     const openDb = (): Promise<IDBDatabase> =>
       new Promise((resolve, reject) => {
+        if (typeof indexedDB === 'undefined') {
+          return reject(new Error('IndexedDB is not available in this environment'));
+        }
         const request = indexedDB.open('PlainerAnalytics', 1);
         request.onerror = () => reject(request.error);
         request.onsuccess = () => resolve(request.result);
@@ -410,6 +416,9 @@ export class AnalyticsTracker {
 
     const openDb = (): Promise<IDBDatabase> =>
       new Promise((resolve, reject) => {
+        if (typeof indexedDB === 'undefined') {
+          return reject(new Error('IndexedDB is not available in this environment'));
+        }
         const request = indexedDB.open('PlainerAnalytics', 1);
         request.onerror = () => reject(request.error);
         request.onsuccess = () => resolve(request.result);
@@ -520,6 +529,9 @@ export class AnalyticsTracker {
     // Delete IndexedDB object stores data related to analytics
     const openDb = (): Promise<IDBDatabase> =>
       new Promise((resolve, reject) => {
+        if (typeof indexedDB === 'undefined') {
+          return reject(new Error('IndexedDB is not available in this environment'));
+        }
         const request = indexedDB.open('PlainerAnalytics', 1);
         request.onerror = () => reject(request.error);
         request.onsuccess = () => resolve(request.result);
