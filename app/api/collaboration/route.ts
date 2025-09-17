@@ -4,7 +4,6 @@ import { createServer } from 'http';
 import type {
   User,
   Room,
-  CursorPosition,
   UserCursor,
   ContentChange,
   ServerToClientEvents,
@@ -242,13 +241,13 @@ function initializeSocketIO() {
         stepId: comment.stepId,
         content: comment.content,
         mentions: comment.mentions || [],
-        parentId: comment.parentId,
         authorId: socket.data.user.id,
         authorName: socket.data.user.name,
         resolved: false,
         createdAt: now,
         updatedAt: now,
       };
+      if (comment.parentId) (fullComment as any).parentId = comment.parentId;
 
       if (!roomComments.has(roomId)) roomComments.set(roomId, new Map());
       const byStep = roomComments.get(roomId)!;
@@ -313,8 +312,8 @@ function initializeSocketIO() {
         } else if (text.startsWith('/translate')) {
           const m = text.match(/to:(ja|en)\s+(.+)/i);
           if (m) {
-            const lang = (m[1].toLowerCase() as 'ja' | 'en');
-            const src = m[2];
+            const lang = (m[1]!.toLowerCase() as 'ja' | 'en');
+            const src = m[2]!;
             const out = translateLocal(src, lang);
             reply = out;
           } else {
@@ -363,15 +362,15 @@ function initializeSocketIO() {
       if (!list) return;
       const idx = list.findIndex((c) => c.id === comment.id);
       if (idx === -1) return;
-      const existing = list[idx];
+      const existing = list[idx]!;
       // Only author can edit for now
       if (existing.authorId !== socket.data.user.id) return;
       const updated: StepComment = {
         ...existing,
         content: comment.content,
-        mentions: comment.mentions || existing.mentions,
         updatedAt: new Date(),
       };
+      if (comment.mentions) (updated as any).mentions = comment.mentions;
       list[idx] = updated;
       io!.to(roomId).emit('comment_updated', updated);
     });
@@ -384,7 +383,7 @@ function initializeSocketIO() {
       if (!list) return;
       const idx = list.findIndex((c) => c.id === id);
       if (idx === -1) return;
-      const existing = list[idx];
+      const existing = list[idx]!;
       // Only author can delete for now
       if (existing.authorId !== socket.data.user.id) return;
       list.splice(idx, 1);
@@ -398,7 +397,8 @@ function initializeSocketIO() {
       if (!list) return;
       const idx = list.findIndex((c) => c.id === id);
       if (idx === -1) return;
-      list[idx] = { ...list[idx], resolved, updatedAt: new Date() };
+      const updated: StepComment = { ...list[idx]!, resolved, updatedAt: new Date() } as StepComment;
+      list[idx] = updated;
       io!.to(roomId).emit('comment_resolved', { id, stepId, resolved });
     });
 
@@ -740,7 +740,6 @@ export async function POST(request: NextRequest) {
         if (requireSig && !verifySignature()) return Response.json({ error: 'Invalid signature' }, { status: 401 });
         const check = requireOwner(roomId);
         if (!check.ok) return check.res;
-        const room = check.room;
         const role: Role = ['owner', 'editor', 'viewer'].includes(data?.role)
           ? data.role
           : 'viewer';

@@ -13,10 +13,8 @@ import {
   Grid,
   ZoomIn,
   ZoomOut,
-  Move,
   RotateCcw,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { useCanvasContext } from './canvas-context';
 import type { DrawingTool, EditorMode } from './types';
 

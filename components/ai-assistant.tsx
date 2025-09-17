@@ -14,7 +14,6 @@ import {
   Loader2,
   Sparkles,
   MessageCircle,
-  Settings,
   Trash2,
   Copy,
   RefreshCw,
@@ -242,7 +241,7 @@ export function AIAssistant({
 
                   <div
                     className={cn(
-                      'max-w-[80%] rounded-lg px-3 py-2 text-sm',
+                      'group max-w-[80%] rounded-lg px-3 py-2 text-sm',
                       message.role === 'user'
                         ? 'bg-primary text-primary-foreground'
                         : 'bg-muted',
@@ -259,14 +258,28 @@ export function AIAssistant({
                         })}
                       </div>
                       {message.role === 'assistant' && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
-                          onClick={() => copyMessage(message.content)}
-                        >
-                          <Copy className="w-3 h-3" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+                            onClick={() => copyMessage(message.content)}
+                            aria-label="メッセージをコピー"
+                          >
+                            <Copy className="w-3 h-3" />
+                          </Button>
+                          {onSuggestionApply && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => onSuggestionApply(message.content)}
+                            >
+                              <Sparkles className="w-3 h-3 mr-1" />
+                              適用
+                            </Button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>

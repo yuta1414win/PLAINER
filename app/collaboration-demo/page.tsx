@@ -132,10 +132,10 @@ export default function CollaborationDemo() {
     }
 
     try {
-      await collaboration.connect(roomId, userId, userName, {
-        password: password || undefined,
-        inviteToken: inviteToken || undefined,
-      });
+      const opts: { password?: string; inviteToken?: string } = {};
+      if (password) opts.password = password;
+      if (inviteToken) opts.inviteToken = inviteToken;
+      await collaboration.connect(roomId, userId, userName, opts);
       setIsJoined(true);
     } catch (error) {
       console.error('Failed to join room:', error);

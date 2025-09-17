@@ -1,257 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { StepOptimizer } from '@/lib/ai/step-optimizer';
-import { ContentGenerator } from '@/lib/ai/content-generator';
-import { FlowAnalyzer } from '@/lib/ai/flow-analyzer';
-import type {
-  OptimizationRequest,
-  OptimizationResult,
-  ContentRequest,
-  FlowAnalysisRequest,
-  Step,
-  Project,
-} from '@/lib/types';
-
-interface APIRequest {
-  type: 'optimization' | 'content' | 'flow';
-  data: OptimizationRequest | ContentRequest | FlowAnalysisRequest;
-  streaming?: boolean;
-}
+import {
+  APIRequest,
+  AIResponsePayload,
+  checkRateLimit,
+  validateOptimizationRequest,
+  validateContentRequest,
+  validateFlowRequest,
+  handleOptimization,
+  handleContentGeneration,
+  handleFlowAnalysis,
+  handleStreamingResponse,
+  getClientIdFromRequest,
+  RATE_LIMIT_CONFIG,
+} from './route-helpers';
 
 interface APIResponse {
   success: boolean;
-  data?: OptimizationResult | any;
+  data?: AIResponsePayload;
   error?: string;
   requestId?: string;
-}
-
-// Initialize AI services
-const stepOptimizer = new StepOptimizer();
-const contentGenerator = new ContentGenerator();
-const flowAnalyzer = new FlowAnalyzer();
-
-// Rate limiting configuration
-const RATE_LIMIT = {
-  maxRequests: 10,
-  windowMs: 60000, // 1 minute
-  requestCounts: new Map<string, { count: number; resetTime: number }>(),
-};
-
-function checkRateLimit(clientId: string): boolean {
-  const now = Date.now();
-  const clientData = RATE_LIMIT.requestCounts.get(clientId);
-
-  if (!clientData || now > clientData.resetTime) {
-    RATE_LIMIT.requestCounts.set(clientId, {
-      count: 1,
-      resetTime: now + RATE_LIMIT.windowMs,
-    });
-    return true;
-  }
-
-  if (clientData.count >= RATE_LIMIT.maxRequests) {
-    return false;
-  }
-
-  clientData.count++;
-  return true;
-}
-
-function validateOptimizationRequest(data: any): data is OptimizationRequest {
-  return (
-    typeof data === 'object' &&
-    typeof data.type === 'string' &&
-    Array.isArray(data.steps) &&
-    data.steps.length > 0 &&
-    data.steps.every(
-      (step: any) =>
-        typeof step === 'object' &&
-        typeof step.id === 'string' &&
-        typeof step.title === 'string'
-    )
-  );
-}
-
-function validateContentRequest(data: any): data is ContentRequest {
-  return (
-    typeof data === 'object' &&
-    typeof data.type === 'string' &&
-    (typeof data.context === 'string' || typeof data.context === 'undefined')
-  );
-}
-
-function validateFlowRequest(data: any): data is FlowAnalysisRequest {
-  return (
-    typeof data === 'object' &&
-    Array.isArray(data.steps) &&
-    data.steps.length > 0
-  );
-}
-
-async function handleOptimization(
-  request: OptimizationRequest
-): Promise<OptimizationResult> {
-  try {
-    const result = await stepOptimizer.optimize(request);
-
-    // Log optimization metrics for analytics
-    console.log('Optimization completed:', {
-      type: request.type,
-      stepCount: request.steps.length,
-      suggestionsCount: result.suggestions.length,
-      confidenceScore: result.confidence,
-      processingTime: Date.now() - result.timestamp,
-    });
-
-    return result;
-  } catch (error) {
-    console.error('Optimization error:', error);
-    throw new Error(
-      `Optimization failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
-  }
-}
-
-async function handleContentGeneration(request: ContentRequest): Promise<any> {
-  try {
-    const result = await contentGenerator.generateContent(request);
-
-    console.log('Content generation completed:', {
-      type: request.type,
-      contentLength: result.content?.length || 0,
-      suggestionsCount: result.suggestions?.length || 0,
-    });
-
-    return result;
-  } catch (error) {
-    console.error('Content generation error:', error);
-    throw new Error(
-      `Content generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
-  }
-}
-
-async function handleFlowAnalysis(request: FlowAnalysisRequest): Promise<any> {
-  try {
-    const result = await flowAnalyzer.analyzeFlow(request);
-
-    console.log('Flow analysis completed:', {
-      stepCount: request.steps.length,
-      issuesFound: result.issues?.length || 0,
-      optimizationsCount: result.optimizations?.length || 0,
-    });
-
-    return result;
-  } catch (error) {
-    console.error('Flow analysis error:', error);
-    throw new Error(
-      `Flow analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
-  }
-}
-
-async function handleStreamingResponse(
-  request: APIRequest,
-  encoder: TextEncoder
-): Promise<ReadableStream> {
-  return new ReadableStream({
-    async start(controller) {
-      try {
-        // Send initial status
-        const initialData = JSON.stringify({
-          type: 'status',
-          message: 'Starting optimization...',
-          progress: 0,
-        });
-        controller.enqueue(encoder.encode(`data: ${initialData}\n\n`));
-
-        let result;
-
-        // Process based on request type
-        switch (request.type) {
-          case 'optimization':
-            // Send progress updates during optimization
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  type: 'status',
-                  message: 'Analyzing steps...',
-                  progress: 25,
-                })}\n\n`
-              )
-            );
-
-            result = await handleOptimization(
-              request.data as OptimizationRequest
-            );
-
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  type: 'status',
-                  message: 'Generating suggestions...',
-                  progress: 75,
-                })}\n\n`
-              )
-            );
-            break;
-
-          case 'content':
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  type: 'status',
-                  message: 'Generating content...',
-                  progress: 50,
-                })}\n\n`
-              )
-            );
-
-            result = await handleContentGeneration(
-              request.data as ContentRequest
-            );
-            break;
-
-          case 'flow':
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  type: 'status',
-                  message: 'Analyzing flow patterns...',
-                  progress: 50,
-                })}\n\n`
-              )
-            );
-
-            result = await handleFlowAnalysis(
-              request.data as FlowAnalysisRequest
-            );
-            break;
-
-          default:
-            throw new Error('Invalid request type');
-        }
-
-        // Send final result
-        const finalData = JSON.stringify({
-          type: 'result',
-          data: result,
-          progress: 100,
-        });
-        controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
-
-        // End stream
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-        controller.close();
-      } catch (error) {
-        const errorData = JSON.stringify({
-          type: 'error',
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-        controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
-        controller.close();
-      }
-    },
-  });
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -262,7 +29,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     const body: APIRequest = await request.json();
 
     // Rate limiting
-    const clientId = request.headers.get('x-forwarded-for') || 'unknown';
+    const clientId = getClientIdFromRequest(request);
     if (!checkRateLimit(clientId)) {
       return NextResponse.json(
         {
@@ -392,8 +159,8 @@ export async function GET(): Promise<Response> {
         flowAnalyzer: 'available',
       },
       rateLimit: {
-        maxRequests: RATE_LIMIT.maxRequests,
-        windowMs: RATE_LIMIT.windowMs,
+        maxRequests: RATE_LIMIT_CONFIG.maxRequests,
+        windowMs: RATE_LIMIT_CONFIG.windowMs,
       },
     };
 

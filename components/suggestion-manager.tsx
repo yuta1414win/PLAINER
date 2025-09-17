@@ -4,7 +4,6 @@ import React, { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   AlertDialog,
@@ -19,16 +18,17 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   Check,
-  X,
   Eye,
   Undo2,
   FileText,
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  Sparkles,
+  Palette,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Suggestion, LiveMessage } from '@/lib/types';
+import { Suggestion } from '@/lib/types';
 import { toast } from 'sonner';
 
 interface SuggestionManagerProps {
@@ -47,12 +47,18 @@ const SUGGESTION_TYPE_LABELS = {
   html_change: 'HTML変更',
   style_change: 'スタイル変更',
   structure_change: '構造変更',
+  content_change: 'コンテンツ調整',
 } as const;
 
 const SUGGESTION_TYPE_COLORS = {
-  html_change: 'bg-blue-100 text-blue-800',
-  style_change: 'bg-purple-100 text-purple-800',
-  structure_change: 'bg-orange-100 text-orange-800',
+  html_change:
+    'bg-gradient-to-r from-sky-500/20 via-sky-400/10 to-transparent text-sky-800 dark:text-sky-200 border border-sky-500/40',
+  style_change:
+    'bg-gradient-to-r from-fuchsia-500/20 via-violet-500/10 to-transparent text-fuchsia-800 dark:text-fuchsia-200 border border-fuchsia-500/40',
+  structure_change:
+    'bg-gradient-to-r from-amber-500/20 via-orange-500/10 to-transparent text-amber-800 dark:text-amber-200 border border-amber-500/40',
+  content_change:
+    'bg-gradient-to-r from-emerald-500/20 via-teal-500/10 to-transparent text-emerald-800 dark:text-emerald-200 border border-emerald-500/40',
 } as const;
 
 export function SuggestionManager({
@@ -62,11 +68,12 @@ export function SuggestionManager({
   onPreviewSuggestion,
   className = '',
 }: SuggestionManagerProps) {
+  const totalSuggestions = suggestions.length;
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(
     new Set()
   );
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    new Set(['html_change', 'style_change', 'structure_change'])
+    new Set(['html_change', 'style_change', 'structure_change', 'content_change'])
   );
   const [isApplying, setIsApplying] = useState(false);
   const [previewingSuggestion, setPreviewingSuggestion] = useState<
@@ -88,6 +95,32 @@ export function SuggestionManager({
 
   const appliedCount = suggestions.filter((s) => s.applied).length;
   const pendingCount = suggestions.filter((s) => !s.applied).length;
+  const adoptionRate = totalSuggestions
+    ? Math.round((appliedCount / totalSuggestions) * 100)
+    : 0;
+  const highImpactCount = suggestions.filter((s) =>
+    ['high', 'critical'].includes(s.priority || '')
+  ).length;
+  const latestUpdatedAt = suggestions.reduce<Date | null>((latest, suggestion) => {
+    if (!suggestion.updatedAt) return latest;
+    const nextDate =
+      suggestion.updatedAt instanceof Date
+        ? suggestion.updatedAt
+        : new Date(suggestion.updatedAt);
+    if (Number.isNaN(nextDate.getTime())) {
+      return latest;
+    }
+    if (!latest || nextDate > latest) {
+      return nextDate;
+    }
+    return latest;
+  }, null);
+  const formattedLastUpdated = latestUpdatedAt
+    ? new Intl.DateTimeFormat('ja-JP', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      }).format(latestUpdatedAt)
+    : null;
 
   // 選択された提案を切り替え
   const toggleSuggestionSelection = useCallback((suggestionId: string) => {
@@ -201,56 +234,100 @@ export function SuggestionManager({
   }
 
   return (
-    <Card className={cn('h-full flex flex-col', className)}>
-      <CardHeader className="flex-shrink-0">
-        <CardTitle className="text-lg flex items-center justify-between">
-          <span>提案管理</span>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="text-xs">
-              適用済み: {appliedCount}
+    <Card className={cn('h-full flex flex-col overflow-hidden', className)}>
+      <CardHeader className="flex-shrink-0 space-y-4 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white border-none">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-lg font-semibold">
+              <Sparkles className="h-5 w-5 text-amber-300" />
+              <span>AI提案コントロールセンター</span>
+            </div>
+            <p className="text-sm text-slate-300">
+              自動生成された改善案を一元管理し、洗練されたエクスペリエンスを素早く適用できます。
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-200">
+              適用済み {appliedCount}/{totalSuggestions}
             </Badge>
-            <Badge variant="outline" className="text-xs">
-              未適用: {pendingCount}
+            <Badge variant="outline" className="border-white/30 text-white/80">
+              未適用 {pendingCount}
             </Badge>
           </div>
-        </CardTitle>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="rounded-xl bg-white/10 border border-white/10 p-3">
+            <p className="text-xs uppercase tracking-wide text-slate-300">
+              採用率
+            </p>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-2xl font-semibold">{adoptionRate}%</span>
+              <span className="text-xs text-slate-300">AI改善が実装済み</span>
+            </div>
+          </div>
+          <div className="rounded-xl bg-white/10 border border-white/10 p-3">
+            <p className="text-xs uppercase tracking-wide text-slate-300">
+              ハイインパクト
+            </p>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-2xl font-semibold">{highImpactCount}</span>
+              <span className="text-xs text-slate-300">優先度高の提案</span>
+            </div>
+          </div>
+          <div className="rounded-xl bg-white/10 border border-white/10 p-3">
+            <p className="text-xs uppercase tracking-wide text-slate-300">
+              最終更新
+            </p>
+            <div className="mt-1 flex items-center gap-2 text-xs text-slate-200">
+              <Palette className="h-4 w-4" />
+              {formattedLastUpdated ?? '履歴がありません'}
+            </div>
+          </div>
+        </div>
 
         {/* バッチ操作 */}
         {pendingCount > 0 && (
-          <div className="flex items-center justify-between pt-4">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white/5 p-3">
+            <div className="flex items-center gap-3">
               <Checkbox
                 checked={selectedSuggestions.size > 0}
                 onCheckedChange={toggleSelectAll}
-                className="mr-2"
+                className="border-white/40"
               />
-              <span className="text-sm text-muted-foreground">
-                {selectedSuggestions.size > 0
-                  ? `${selectedSuggestions.size}件選択中`
-                  : '全て選択'}
-              </span>
+              <div className="flex flex-col">
+                <span className="text-sm font-medium text-white">
+                  {selectedSuggestions.size > 0
+                    ? `${selectedSuggestions.size}件選択中`
+                    : '全て選択'}
+                </span>
+                <span className="text-xs text-slate-300">
+                  モダンUIの調整をまとめて適用
+                </span>
+              </div>
             </div>
 
-            {selectedSuggestions.size > 0 && (
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
+              {selectedSuggestions.size > 0 && (
                 <Button
                   size="sm"
                   onClick={handleApplySelected}
                   disabled={isApplying}
-                  className="flex items-center gap-2"
+                  className="bg-gradient-to-r from-violet-500 via-purple-500 to-indigo-500 text-white shadow-lg shadow-indigo-500/40"
                 >
-                  <Check className="w-4 h-4" />
-                  {isApplying ? '適用中...' : '選択項目を適用'}
+                  <Check className="w-4 h-4 mr-2" />
+                  {isApplying ? '適用中...' : '選択を一括適用'}
                 </Button>
-              </div>
-            )}
+              )}
+              <Badge variant="outline" className="border-white/30 text-white/70">
+                未適用 {pendingCount}
+              </Badge>
+            </div>
           </div>
         )}
-
-        <Separator />
       </CardHeader>
 
-      <CardContent className="flex-1 space-y-4 overflow-y-auto">
+      <CardContent className="flex-1 space-y-6 overflow-y-auto bg-slate-50 dark:bg-slate-950/60 p-6">
         {Object.entries(groupedSuggestions).map(
           ([groupType, groupSuggestions]) => {
             const isExpanded = expandedGroups.has(groupType);
@@ -265,7 +342,7 @@ export function SuggestionManager({
               <div key={groupType} className="space-y-2">
                 {/* グループヘッダー */}
                 <div
-                  className="flex items-center justify-between p-2 bg-muted/50 rounded-lg cursor-pointer"
+                  className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900"
                   onClick={() => toggleGroupExpansion(groupType)}
                 >
                   <div className="flex items-center gap-2">
@@ -275,11 +352,12 @@ export function SuggestionManager({
                       <ChevronDown className="w-4 h-4" />
                     )}
                     <Badge
-                      className={
+                      className={cn(
+                        'rounded-full px-3 py-1 text-xs font-semibold capitalize',
                         SUGGESTION_TYPE_COLORS[
                           groupType as keyof typeof SUGGESTION_TYPE_COLORS
                         ]
-                      }
+                      )}
                     >
                       {
                         SUGGESTION_TYPE_LABELS[
@@ -299,17 +377,17 @@ export function SuggestionManager({
 
                 {/* グループ内容 */}
                 {isExpanded && (
-                  <div className="space-y-3 ml-6">
+                  <div className="space-y-4 border-l border-dashed border-slate-200 pl-6 dark:border-slate-700">
                     {groupSuggestions.map((suggestion) => (
                       <div
                         key={suggestion.id}
                         className={cn(
-                          'border rounded-lg p-4 transition-colors',
+                          'rounded-2xl border p-4 shadow-sm transition-all hover:shadow-lg',
                           suggestion.applied
-                            ? 'bg-green-50 border-green-200'
-                            : 'bg-white border-border',
+                            ? 'border-emerald-200 bg-emerald-50/60'
+                            : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/80',
                           previewingSuggestion === suggestion.id &&
-                            'ring-2 ring-blue-500'
+                            'ring-2 ring-offset-2 ring-blue-500'
                         )}
                       >
                         <div className="flex items-start gap-3">
@@ -344,12 +422,11 @@ export function SuggestionManager({
 
                             {/* 差分表示 */}
                             {suggestion.diff && (
-                              <div className="bg-gray-50 rounded-md p-3 mb-3">
-                                <p className="text-xs font-medium text-gray-600 mb-2 flex items-center gap-1">
-                                  <FileText className="h-3 w-3" />
-                                  変更内容
+                              <div className="mb-4 overflow-hidden rounded-xl bg-slate-900/90 px-4 py-3 text-slate-100 shadow-inner">
+                                <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-300">
+                                  <FileText className="h-3 w-3" /> 変更内容
                                 </p>
-                                <pre className="text-xs text-gray-800 whitespace-pre-wrap overflow-x-auto">
+                                <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs font-mono leading-relaxed text-slate-100/90">
                                   {suggestion.diff}
                                 </pre>
                               </div>
@@ -379,7 +456,7 @@ export function SuggestionManager({
                                     disabled={isApplying}
                                     className="flex items-center gap-2"
                                   >
-                                    <Check className="w-4 h-4" />
+                                    <Palette className="w-4 h-4" />
                                     部分適用
                                   </Button>
                                   <Button

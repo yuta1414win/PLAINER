@@ -4,11 +4,9 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle,
-  XCircle,
   AlertTriangle,
   Info,
   ArrowUpDown,
-  Filter,
   Search,
   ChevronDown,
   ChevronRight,
@@ -21,15 +19,9 @@ import {
   Shield,
   BarChart3,
   Settings,
-  ExternalLink,
-  Copy,
   Play,
-  Pause,
-  RotateCcw,
   Eye,
   EyeOff,
-  Star,
-  Bookmark,
   Flag,
   MessageSquare,
   TrendingUp,
@@ -39,7 +31,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -51,19 +42,12 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { Textarea } from '@/components/ui/textarea';
 
 import {
@@ -105,11 +89,15 @@ interface FilterState {
 }
 
 interface SuggestionWithState extends OptimizationSuggestion {
+  // Optional per-suggestion confidence used for sorting when available
+  confidence?: number;
   isSelected: boolean;
   isApplied: boolean;
   isExpanded: boolean;
   feedback?: SuggestionFeedback;
 }
+
+type SortField = 'priority' | 'impact' | 'effort' | 'confidence';
 
 // ============================================================================
 // Suggestion Type Configurations
@@ -176,9 +164,7 @@ export default function SuggestionsList({
     Map<UUID, Partial<SuggestionWithState>>
   >(new Map());
 
-  const [sortBy, setSortBy] = useState<
-    'priority' | 'impact' | 'effort' | 'confidence'
-  >('priority');
+  const [sortBy, setSortBy] = useState<SortField>('priority');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Enhanced suggestions with state
@@ -197,7 +183,7 @@ export default function SuggestionsList({
 
   // Filtered and sorted suggestions
   const filteredSuggestions = useMemo(() => {
-    let filtered = enhancedSuggestions.filter((suggestion) => {
+    const filtered = enhancedSuggestions.filter((suggestion) => {
       if (!filters.showImplemented && suggestion.isApplied) return false;
       if (
         filters.search &&
@@ -246,7 +232,7 @@ export default function SuggestionsList({
           comparison = effortOrder[b.effort] - effortOrder[a.effort];
           break;
         case 'confidence':
-          comparison = b.confidence - a.confidence;
+          comparison = (b.confidence ?? 0) - (a.confidence ?? 0);
           break;
       }
 
@@ -431,7 +417,6 @@ export default function SuggestionsList({
             onSortByChange={setSortBy}
             sortOrder={sortOrder}
             onSortOrderChange={setSortOrder}
-            groupBy={groupBy}
             showSelectAll={showBulkActions}
             onSelectAll={handleSelectAll}
             hasSelections={selectedSuggestions.length > 0}
@@ -480,11 +465,10 @@ export default function SuggestionsList({
 interface SuggestionsFiltersProps {
   filters: FilterState;
   onFiltersChange: (filters: FilterState) => void;
-  sortBy: string;
-  onSortByChange: (sortBy: any) => void;
+  sortBy: SortField;
+  onSortByChange: (sortBy: SortField) => void;
   sortOrder: 'asc' | 'desc';
   onSortOrderChange: (order: 'asc' | 'desc') => void;
-  groupBy: string;
   showSelectAll: boolean;
   onSelectAll: (selected: boolean) => void;
   hasSelections: boolean;
@@ -497,7 +481,6 @@ function SuggestionsFilters({
   onSortByChange,
   sortOrder,
   onSortOrderChange,
-  groupBy,
   showSelectAll,
   onSelectAll,
   hasSelections,
@@ -526,7 +509,7 @@ function SuggestionsFilters({
               <div className="flex items-center gap-2">
                 <Checkbox
                   checked={hasSelections}
-                  onCheckedChange={(checked) => onSelectAll(!!checked)}
+                  onCheckedChange={(checked: boolean | 'indeterminate') => onSelectAll(!!checked)}
                 />
                 <Label className="text-sm">Select All</Label>
               </div>
@@ -548,7 +531,10 @@ function SuggestionsFilters({
             <Select
               value={filters.category}
               onValueChange={(value) =>
-                onFiltersChange({ ...filters, category: value as any })
+                onFiltersChange({
+                  ...filters,
+                  category: value as FilterState['category'],
+                })
               }
             >
               <SelectTrigger>
@@ -569,7 +555,10 @@ function SuggestionsFilters({
             <Select
               value={filters.priority}
               onValueChange={(value) =>
-                onFiltersChange({ ...filters, priority: value as any })
+                onFiltersChange({
+                  ...filters,
+                  priority: value as FilterState['priority'],
+                })
               }
             >
               <SelectTrigger>
@@ -587,7 +576,10 @@ function SuggestionsFilters({
             <Select
               value={filters.impact}
               onValueChange={(value) =>
-                onFiltersChange({ ...filters, impact: value as any })
+                onFiltersChange({
+                  ...filters,
+                  impact: value as FilterState['impact'],
+                })
               }
             >
               <SelectTrigger>
@@ -604,7 +596,10 @@ function SuggestionsFilters({
             <Select
               value={filters.effort}
               onValueChange={(value) =>
-                onFiltersChange({ ...filters, effort: value as any })
+                onFiltersChange({
+                  ...filters,
+                  effort: value as FilterState['effort'],
+                })
               }
             >
               <SelectTrigger>
@@ -799,7 +794,7 @@ function SuggestionCard({
             {showSelection && !suggestion.isApplied && (
               <Checkbox
                 checked={suggestion.isSelected}
-                onCheckedChange={(checked) =>
+                onCheckedChange={(checked: boolean | 'indeterminate') =>
                   onSelect(suggestion.id, !!checked)
                 }
                 className="mt-1"
@@ -852,7 +847,7 @@ function SuggestionCard({
                 <div className="flex items-center gap-1">
                   <BarChart3 className="w-3 h-3" />
                   <span>
-                    {Math.round(suggestion.confidence * 100)}% confidence
+                    {Math.round((suggestion.confidence ?? 0) * 100)}% confidence
                   </span>
                 </div>
                 {suggestion.targetStepId && (
@@ -1054,7 +1049,13 @@ function SuggestionFeedbackForm({
 
   const handleSubmit = () => {
     if (rating) {
-      onSubmit({ rating, comment: comment.trim() || undefined, helpful });
+      const trimmed = comment.trim();
+      const payload = (
+        trimmed
+          ? { rating, comment: trimmed, helpful }
+          : { rating, helpful }
+      ) as SuggestionFeedback;
+      onSubmit(payload);
     }
   };
 
@@ -1092,7 +1093,7 @@ function SuggestionFeedbackForm({
         <Checkbox
           id="helpful"
           checked={helpful}
-          onCheckedChange={(checked) => setHelpful(!!checked)}
+          onCheckedChange={(checked: boolean | 'indeterminate') => setHelpful(!!checked)}
         />
         <Label htmlFor="helpful" className="text-xs">
           This suggestion will improve user experience

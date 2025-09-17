@@ -29,7 +29,8 @@ import { Trash2, Edit, Plus, GitBranch, Eye, TestTube } from 'lucide-react';
 import { useEditorStore } from '@/lib/store';
 import { VariableProcessor } from '@/lib/variables';
 import { useTranslation } from './language-switcher';
-import type { ConditionalStep, Step } from '@/lib/types';
+import type { ConditionalStep, Step, UUID } from '@/lib/types';
+import { createBrandedType } from '@/lib/types';
 
 interface BranchingManagerProps {
   isOpen: boolean;
@@ -62,19 +63,21 @@ export function BranchingManager({ isOpen, onClose }: BranchingManagerProps) {
   const variables = project?.variables || [];
   const processor = project ? new VariableProcessor(project) : null;
 
+  const serializeConditions = (cs: ConditionalStep) =>
+    JSON.stringify(cs.conditions);
+
   // Convert conditional steps to rules format for easier management
-  const rules: BranchingRule[] = conditionalSteps.reduce((acc, condition) => {
-    const existingRule = acc.find(
-      (rule) => rule.condition === condition.condition
-    );
+  const rules: BranchingRule[] = conditionalSteps.reduce((acc, cs) => {
+    const key = serializeConditions(cs);
+    const existingRule = acc.find((rule) => rule.condition === key);
     if (existingRule) {
-      existingRule.targetStepIds.push(condition.stepId);
+      existingRule.targetStepIds.push(cs.stepId);
     } else {
       acc.push({
         id: `rule-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        name: `Rule: ${condition.condition}`,
-        condition: condition.condition,
-        targetStepIds: [condition.stepId],
+        name: `Rule: ${key}`,
+        condition: key,
+        targetStepIds: [cs.stepId],
         isActive: true,
       });
     }
@@ -90,10 +93,28 @@ export function BranchingManager({ isOpen, onClose }: BranchingManagerProps) {
     )
       return;
 
+    const parseConditions = (s: string) => {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {}
+      return [
+        {
+          type: 'variable',
+          operator: 'equals',
+          value: s,
+        },
+      ];
+    };
+
+    const toUUID = (v: string) => createBrandedType<UUID>(v);
+
     const newConditionalSteps: ConditionalStep[] = newRule.targetStepIds.map(
       (stepId) => ({
-        condition: newRule.condition!,
-        stepId,
+        id: toUUID(crypto.randomUUID()),
+        stepId: stepId as unknown as UUID,
+        conditions: parseConditions(newRule.condition!),
+        action: 'show',
       })
     );
 
@@ -110,17 +131,34 @@ export function BranchingManager({ isOpen, onClose }: BranchingManagerProps) {
       if (!project) return;
 
       // Remove old conditional steps for this rule
-      const updatedConditionalSteps = conditionalSteps.filter(
-        (cs) =>
-          !editingRule?.targetStepIds.includes(cs.stepId) ||
-          cs.condition !== editingRule.condition
+      const updatedConditionalSteps = conditionalSteps.filter((cs) =>
+        !editingRule?.targetStepIds.includes(cs.stepId) ||
+        serializeConditions(cs) !== editingRule.condition
       );
 
       // Add new conditional steps
+      const parseConditions = (s: string) => {
+        try {
+          const parsed = JSON.parse(s);
+          if (Array.isArray(parsed)) return parsed;
+        } catch {}
+        return [
+          {
+            type: 'variable',
+            operator: 'equals',
+            value: s,
+          },
+        ];
+      };
+
+      const toUUID = (v: string) => createBrandedType<UUID>(v);
+
       const newConditionalSteps: ConditionalStep[] = rule.targetStepIds.map(
         (stepId) => ({
-          condition: rule.condition,
-          stepId,
+          id: toUUID(crypto.randomUUID()),
+          stepId: stepId as unknown as UUID,
+          conditions: parseConditions(rule.condition),
+          action: 'show',
         })
       );
 
@@ -137,10 +175,9 @@ export function BranchingManager({ isOpen, onClose }: BranchingManagerProps) {
     (rule: BranchingRule) => {
       if (!project) return;
 
-      const updatedConditionalSteps = conditionalSteps.filter(
-        (cs) =>
-          !rule.targetStepIds.includes(cs.stepId) ||
-          cs.condition !== rule.condition
+      const updatedConditionalSteps = conditionalSteps.filter((cs) =>
+        !rule.targetStepIds.includes(cs.stepId) ||
+        serializeConditions(cs) !== rule.condition
       );
 
       updateProject({
@@ -174,7 +211,7 @@ export function BranchingManager({ isOpen, onClose }: BranchingManagerProps) {
   const getAffectedSteps = useCallback(
     (condition: string): Step[] => {
       const affectedStepIds = conditionalSteps
-        .filter((cs) => cs.condition === condition)
+        .filter((cs) => serializeConditions(cs) === condition)
         .map((cs) => cs.stepId);
 
       return steps.filter((step) => affectedStepIds.includes(step.id));

@@ -24,7 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Annotation } from '@/lib/types';
+import type { Annotation, NormalizedCoordinate } from '@/lib/types';
 import type { User } from '@/lib/collaboration/types';
 import {
   MentionDropdown,
@@ -148,10 +148,10 @@ export function AnnotationTool({
     if (mode === 'text') {
       const newAnnotation: Omit<Annotation, 'id'> = {
         text: 'テキスト注釈',
-        x: 0.5, // Center of canvas
-        y: 0.5,
+        x: 0.5 as NormalizedCoordinate, // Center of canvas
+        y: 0.5 as NormalizedCoordinate,
         style: {
-          color: '#000000',
+          color: '#000000' as any,
           fontSize: 14,
           fontWeight: 'normal',
         },
@@ -164,13 +164,13 @@ export function AnnotationTool({
       // For now, create a text-based highlight
       const newAnnotation: Omit<Annotation, 'id'> = {
         text: 'ハイライト',
-        x: 0.5,
-        y: 0.5,
+        x: 0.5 as NormalizedCoordinate,
+        y: 0.5 as NormalizedCoordinate,
         style: {
-          color: '#000000',
+          color: '#000000' as any,
           fontSize: 14,
           fontWeight: 'normal',
-          backgroundColor: '#fef08a',
+          backgroundColor: '#fef08a' as any,
         },
       };
       setPendingAnnotation(newAnnotation);
@@ -391,7 +391,7 @@ export function AnnotationTool({
                     <Slider
                       value={[fontSize]}
                       onValueChange={([value]) =>
-                        handleStyleUpdate({ fontSize: value })
+                        handleStyleUpdate({ fontSize: value ?? 14 })
                       }
                       max={32}
                       min={8}
@@ -411,7 +411,7 @@ export function AnnotationTool({
                   <Select
                     value={fontWeight}
                     onValueChange={(value) =>
-                      handleStyleUpdate({ fontWeight: value })
+                      handleStyleUpdate({ fontWeight: value as any })
                     }
                   >
                     <SelectTrigger>
@@ -441,7 +441,7 @@ export function AnnotationTool({
                         )}
                         style={{ backgroundColor: textColor.value }}
                         onClick={() =>
-                          handleStyleUpdate({ color: textColor.value })
+                          handleStyleUpdate({ color: textColor.value as any })
                         }
                         title={textColor.label}
                       />
@@ -466,7 +466,7 @@ export function AnnotationTool({
                           style={{ backgroundColor: highlightColor.value }}
                           onClick={() =>
                             handleStyleUpdate({
-                              backgroundColor: highlightColor.value,
+                              backgroundColor: highlightColor.value as any,
                             })
                           }
                           title={highlightColor.label}

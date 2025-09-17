@@ -1,11 +1,9 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { ConsentBanner } from '@/components/privacy/consent-banner';
 import './globals.css';
 import { SiteHeader } from '@/components/site-header';
 
-const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'PLAINER - Screenshot to Interactive Guide',
@@ -31,7 +29,7 @@ interface RootLayoutProps {
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="ja" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body>
         <ErrorBoundary>
           <div className="min-h-screen bg-background font-sans antialiased">
             <SiteHeader />

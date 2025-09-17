@@ -54,7 +54,7 @@ import {
   defaultShortcuts,
 } from '@/hooks/use-keyboard-shortcuts';
 import { useAutoSave } from '@/hooks/use-auto-save';
-import type { Project, Step, Theme, Annotation, CTA, Mask } from '@/lib/types';
+import type { Project, Step, Theme, Annotation, CTA, Mask, UUID, URLString } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useCollaboration } from '@/hooks/use-collaboration';
 import { CompactPresenceIndicator, CommentsPanel, LockIndicator } from '@/components/collaboration';
@@ -192,7 +192,7 @@ export default function EditorPage() {
   // プロジェクト作成
   const createNewProject = useCallback(() => {
     const newProject: Project = {
-      id: `project-${Date.now()}`,
+      id: `project-${Date.now()}` as UUID,
       name: newProjectName,
       steps: [],
       chapters: [],
@@ -220,11 +220,11 @@ export default function EditorPage() {
       // 各画像をステップとして追加
       processedImages.forEach((processedImage, index) => {
         const step: Step = {
-          id: `step-${Date.now()}-${index}`,
+          id: `step-${Date.now()}-${index}` as UUID,
           title: `ステップ ${project ? project.steps.length + index + 1 : index + 1}`,
           description: '',
-          image: processedImage.imageData,
-          thumbnail: processedImage.thumbnail,
+          image: processedImage.imageData as URLString,
+          thumbnail: processedImage.thumbnail as URLString,
           hotspots: [],
           annotations: [],
           masks: [],
@@ -236,7 +236,7 @@ export default function EditorPage() {
       // 最初のステップを選択してエディタータブに移動
       if (processedImages.length > 0 && !currentStepId) {
         const firstStep = processedImages[0];
-        setCurrentStep(`step-${Date.now()}-0`);
+        setCurrentStep(`step-${Date.now()}-0` as UUID);
       }
 
       setActiveTab('edit');
@@ -247,7 +247,7 @@ export default function EditorPage() {
   // ステップ選択
   const handleStepSelect = useCallback(
     (stepId: string) => {
-      setCurrentStep(stepId);
+      setCurrentStep(stepId as UUID);
     },
     [setCurrentStep]
   );
@@ -280,7 +280,7 @@ export default function EditorPage() {
       if (currentStep) {
         const newAnnotation = {
           ...annotation,
-          id: `annotation-${Date.now()}`,
+          id: `annotation-${Date.now()}` as UUID,
         };
         addAnnotation(currentStep.id, newAnnotation);
       }
@@ -291,7 +291,7 @@ export default function EditorPage() {
   const handleAnnotationUpdate = useCallback(
     (annotationId: string, updates: Partial<Annotation>) => {
       if (currentStep) {
-        updateAnnotation(currentStep.id, annotationId, updates);
+        updateAnnotation(currentStep.id, annotationId as UUID, updates);
       }
     },
     [currentStep, updateAnnotation]
@@ -300,7 +300,7 @@ export default function EditorPage() {
   const handleAnnotationDelete = useCallback(
     (annotationId: string) => {
       if (currentStep) {
-        deleteAnnotation(currentStep.id, annotationId);
+        deleteAnnotation(currentStep.id, annotationId as UUID);
         if (selectedAnnotationId === annotationId) {
           setSelectedAnnotation(null);
         }
@@ -317,7 +317,8 @@ export default function EditorPage() {
   const handleCTAUpdate = useCallback(
     (cta: CTA | null) => {
       if (currentStep) {
-        updateStep(currentStep.id, { cta });
+        const updates: Partial<Step> = cta ? ({ cta } as Partial<Step>) : {};
+        updateStep(currentStep.id, updates);
       }
     },
     [currentStep, updateStep]
@@ -329,7 +330,7 @@ export default function EditorPage() {
       if (currentStep) {
         const newMask = {
           ...mask,
-          id: `mask-${Date.now()}`,
+          id: `mask-${Date.now()}` as UUID,
         };
         addMask(currentStep.id, newMask);
       }
@@ -340,7 +341,7 @@ export default function EditorPage() {
   const handleMaskUpdate = useCallback(
     (maskId: string, updates: Partial<Mask>) => {
       if (currentStep) {
-        updateMask(currentStep.id, maskId, updates);
+        updateMask(currentStep.id, maskId as UUID, updates);
       }
     },
     [currentStep, updateMask]
@@ -349,7 +350,7 @@ export default function EditorPage() {
   const handleMaskDelete = useCallback(
     (maskId: string) => {
       if (currentStep) {
-        deleteMask(currentStep.id, maskId);
+        deleteMask(currentStep.id, maskId as UUID);
         if (selectedMaskId === maskId) {
           setSelectedMask(null);
         }
@@ -360,7 +361,7 @@ export default function EditorPage() {
 
   const handleMaskSelect = useCallback(
     (maskId: string | null) => {
-      setSelectedMask(maskId);
+      setSelectedMask(maskId as UUID | null);
     },
     [setSelectedMask]
   );
@@ -368,7 +369,7 @@ export default function EditorPage() {
   const handleMaskDuplicate = useCallback(
     (maskId: string) => {
       if (currentStep) {
-        duplicateMask(maskId);
+        duplicateMask(currentStep.id, maskId as UUID);
       }
     },
     [currentStep, duplicateMask]
@@ -598,7 +599,7 @@ export default function EditorPage() {
                     <LockIndicator
                       resourceId="project-name"
                       locks={collaboration.locks}
-                      currentUserId={collaboration.currentUser?.id}
+                      currentUserId={collaboration.currentUser?.id || ''}
                       onAcquire={(rid) => collaboration.acquireLock(rid)}
                       onRelease={(rid) => collaboration.releaseLock(rid)}
                     />
@@ -612,7 +613,7 @@ export default function EditorPage() {
               <div className="flex items-center gap-2 pr-2">
                 <CompactPresenceIndicator
                   users={collaboration.users}
-                  currentUserId={collaboration.currentUser?.id}
+                  currentUserId={collaboration.currentUser?.id || ''}
                   isConnected={collaboration.isConnected}
                   isReconnecting={collaboration.isReconnecting}
                   className="mr-2"
@@ -750,12 +751,12 @@ export default function EditorPage() {
                 tabIndex={0}
               >
                 <StepList
-                  steps={project.steps}
+                  steps={[...project.steps]}
                   currentStepId={currentStepId}
                   onStepSelect={handleStepSelect}
-                  onStepsReorder={reorderSteps}
-                  onStepDuplicate={duplicateStep}
-                  onStepDelete={deleteStep}
+                  onStepsReorder={(ids) => reorderSteps(ids as unknown as readonly UUID[])}
+                  onStepDuplicate={(id) => duplicateStep(id as unknown as UUID)}
+                  onStepDelete={(id) => deleteStep(id as unknown as UUID)}
                   onAddStep={() => setActiveTab('upload')}
                 />
               </div>
@@ -788,15 +789,15 @@ export default function EditorPage() {
                 </DrawerHeader>
                 <div className="flex-1 overflow-auto">
                   <StepList
-                    steps={project.steps}
+                    steps={[...project.steps]}
                     currentStepId={currentStepId}
                     onStepSelect={(stepId) => {
                       handleStepSelect(stepId);
                       setIsMobileSidebarOpen(false);
                     }}
-                    onStepsReorder={reorderSteps}
-                    onStepDuplicate={duplicateStep}
-                    onStepDelete={deleteStep}
+                    onStepsReorder={(ids) => reorderSteps(ids as unknown as readonly UUID[])}
+                    onStepDuplicate={(id) => duplicateStep(id as unknown as UUID)}
+                    onStepDelete={(id) => deleteStep(id as unknown as UUID)}
                     onAddStep={() => {
                       setActiveTab('upload');
                       setIsMobileSidebarOpen(false);
@@ -1000,7 +1001,7 @@ export default function EditorPage() {
                                       <LockIndicator
                                         resourceId={`step-title-${currentStep.id}`}
                                         locks={collaboration.locks}
-                                        currentUserId={collaboration.currentUser?.id}
+                                        currentUserId={collaboration.currentUser?.id || ''}
                                         onAcquire={(rid) => collaboration.acquireLock(rid)}
                                         onRelease={(rid) => collaboration.releaseLock(rid)}
                                       />
@@ -1029,7 +1030,7 @@ export default function EditorPage() {
                                       <LockIndicator
                                         resourceId={`step-desc-${currentStep.id}`}
                                         locks={collaboration.locks}
-                                        currentUserId={collaboration.currentUser?.id}
+                                        currentUserId={collaboration.currentUser?.id || ''}
                                         onAcquire={(rid) => collaboration.acquireLock(rid)}
                                         onRelease={(rid) => collaboration.releaseLock(rid)}
                                         className="mt-1"
@@ -1093,7 +1094,7 @@ export default function EditorPage() {
 
                                 {/* マスクツール */}
                                 <MaskTool
-                                  masks={currentStep.masks}
+                                  masks={[...currentStep.masks]}
                                   selectedMaskId={selectedMaskId}
                                   onMaskCreate={handleMaskCreate}
                                   onMaskUpdate={handleMaskUpdate}
@@ -1106,7 +1107,7 @@ export default function EditorPage() {
 
                                 {/* CTA設定 */}
                                 <CTASettings
-                                  cta={currentStep.cta}
+                                  cta={currentStep.cta ?? null}
                                   onCTAUpdate={handleCTAUpdate}
                                 />
 
@@ -1167,7 +1168,7 @@ export default function EditorPage() {
                                         <LockIndicator
                                           resourceId={`step-title-${currentStep.id}`}
                                           locks={collaboration.locks}
-                                          currentUserId={collaboration.currentUser?.id}
+                                          currentUserId={collaboration.currentUser?.id || ''}
                                           onAcquire={(rid) => collaboration.acquireLock(rid)}
                                           onRelease={(rid) => collaboration.releaseLock(rid)}
                                         />
@@ -1196,7 +1197,7 @@ export default function EditorPage() {
                                         <LockIndicator
                                           resourceId={`step-desc-${currentStep.id}`}
                                           locks={collaboration.locks}
-                                          currentUserId={collaboration.currentUser?.id}
+                                          currentUserId={collaboration.currentUser?.id || ''}
                                           onAcquire={(rid) => collaboration.acquireLock(rid)}
                                           onRelease={(rid) => collaboration.releaseLock(rid)}
                                           className="mt-1"
@@ -1226,7 +1227,7 @@ export default function EditorPage() {
 
                                 {/* マスクツール */}
                                 <MaskTool
-                                  masks={currentStep.masks}
+                                  masks={[...currentStep.masks]}
                                   selectedMaskId={selectedMaskId}
                                   onMaskCreate={handleMaskCreate}
                                   onMaskUpdate={handleMaskUpdate}
@@ -1239,7 +1240,7 @@ export default function EditorPage() {
 
                                 {/* CTA設定 */}
                                 <CTASettings
-                                  cta={currentStep.cta}
+                                  cta={currentStep.cta ?? null}
                                   onCTAUpdate={handleCTAUpdate}
                                 />
 
@@ -1318,10 +1319,11 @@ export default function EditorPage() {
                           // TODO: 提案の適用ロジック実装
                         }}
                         context={{
-                          currentStep: currentStepId || undefined,
+                          ...(currentStepId ? { currentStep: String(currentStepId) } : {}),
                           totalSteps: project.steps.length,
-                          selectedElement:
-                            selectedAnnotationId || selectedMaskId || undefined,
+                          ...((selectedAnnotationId || selectedMaskId)
+                            ? { selectedElement: (selectedAnnotationId || selectedMaskId)! }
+                            : {}),
                         }}
                       />
                     </div>

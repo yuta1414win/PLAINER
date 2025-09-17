@@ -4,7 +4,49 @@ import {
   HarmCategory,
 } from '@google/generative-ai';
 
+// Minimal mock toggle: if MOCK_AI=true or no GEMINI_API_KEY is set, return
+// a fake model with deterministic responses so local dev runs without network.
+const MOCK_AI = String(process.env.MOCK_AI || '').toLowerCase() === 'true' || !process.env.GEMINI_API_KEY;
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+
+type FakeGenerateResult = {
+  response: { text: () => Promise<string> };
+};
+
+const fakeModel = {
+  generateContent: async (input: unknown): Promise<FakeGenerateResult> => {
+    const make = (text: string): FakeGenerateResult => ({ response: { text: async () => text } });
+
+    // If prompt is an array [prompt, imagePart] => complete step or alt text
+    if (Array.isArray(input)) {
+      return make(
+        [
+          'TITLE: Example Step',
+          'DESCRIPTION: This is a mocked description for local development without a real AI key. It explains the action the user should take in simple, helpful language.',
+          'ANNOTATIONS: button: Click here | input: Enter your name',
+          'DETECTED_ELEMENTS: button, input, link',
+        ].join('\n')
+      );
+    }
+
+    const prompt = String(input || '').toLowerCase();
+    if (prompt.includes('call-to-action')) return make('Continue');
+    if (prompt.includes('return only the title')) return make('Getting Started');
+    if (prompt.includes('return only the description')) return make('This is a concise, clear mocked description for local testing. It guides users through the next action.');
+    if (prompt.includes('return only the tooltip')) return make('Opens the settings panel for this feature.');
+    if (prompt.includes('alt text')) return make('Screenshot of an app interface with a button and input field.');
+    if (prompt.includes('return only the alternatives')) return make('Option A\nOption B\nOption C');
+
+    // Default: provide step optimizer style suggestion lines
+    return make(
+      [
+        'SUGGESTION: Improve step order | Reorder to reduce cognitive load | high impact, low effort',
+        'SUGGESTION: Clarify button label | Make the primary action more explicit | medium impact, low effort',
+      ].join('\n')
+    );
+  },
+};
 
 export const generationConfig = {
   temperature: 0.7,
@@ -33,6 +75,7 @@ export const safetySettings = [
 ];
 
 export const getGeminiModel = () => {
+  if (MOCK_AI) return fakeModel as any;
   const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
   return genAI.getGenerativeModel({
     model: modelName,
@@ -44,6 +87,7 @@ export const getGeminiModel = () => {
 export type ModelProfile = 'fast' | 'balanced' | 'quality';
 
 export const getGeminiModelForTask = (profile: ModelProfile = 'balanced') => {
+  if (MOCK_AI) return fakeModel as any;
   const override = process.env.GEMINI_MODEL;
   const modelName = override ||
     (profile === 'fast'

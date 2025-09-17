@@ -24,8 +24,8 @@ export async function POST(req: NextRequest) {
       path: '/',
     });
     return res;
-  } catch (e) {
+  } catch (error) {
+    console.error('Login request failed', error);
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   }
 }
-

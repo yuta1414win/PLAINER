@@ -4,11 +4,6 @@ import { useCallback } from 'react';
 import type { Hotspot, Annotation, Mask } from '@/lib/types';
 import type { CanvasState } from './types';
 
-interface CanvasDrawingProps {
-  canvasState: CanvasState;
-  showGrid: boolean;
-}
-
 export function useCanvasDrawing() {
   // グリッド描画
   const drawGrid = useCallback(

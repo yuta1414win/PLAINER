@@ -18,9 +18,9 @@ import {
   AlignHorizontalSpaceBetween,
   AlignVerticalSpaceAround,
   AlignVerticalSpaceBetween,
-  AlignTop,
-  AlignMiddle,
-  AlignBottom,
+  AlignStartVertical,
+  AlignCenterVertical,
+  AlignEndVertical,
   FlipHorizontal,
   FlipVertical,
   Group,
@@ -164,7 +164,7 @@ export function AlignmentToolbar({
                         onClick={() => onAlign('top')}
                         disabled={!canAlign}
                       >
-                        <AlignTop className="h-4 w-4" />
+                        <AlignStartVertical className="h-4 w-4" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -181,7 +181,7 @@ export function AlignmentToolbar({
                         onClick={() => onAlign('middle')}
                         disabled={!canAlign}
                       >
-                        <AlignMiddle className="h-4 w-4" />
+                        <AlignCenterVertical className="h-4 w-4" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -198,7 +198,7 @@ export function AlignmentToolbar({
                         onClick={() => onAlign('bottom')}
                         disabled={!canAlign}
                       >
-                        <AlignBottom className="h-4 w-4" />
+                        <AlignEndVertical className="h-4 w-4" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -414,7 +414,7 @@ export function CompactAlignmentToolbar({
               onClick={() => onAlign('middle')}
               disabled={selectedCount < 2}
             >
-              <AlignMiddle className="h-4 w-4" />
+              <AlignCenterVertical className="h-4 w-4" />
             </Button>
             <Button
               variant="ghost"

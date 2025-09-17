@@ -7,15 +7,11 @@ import type { CanvasState, CanvasCoordinates } from './types';
 interface CanvasViewportProps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
   canvasState: CanvasState;
-  width?: number;
-  height?: number;
 }
 
 export function useCanvasViewport({
   canvasRef,
   canvasState,
-  width = 800,
-  height = 600,
 }: CanvasViewportProps) {
   // マウス座標を正規化座標に変換
   const getCanvasCoordinates = useCallback(

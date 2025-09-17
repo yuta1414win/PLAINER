@@ -209,10 +209,12 @@ export function CanvasEditor({
 
         case 'free':
           if (hotspot.points && hotspot.points.length > 0) {
+            const first = hotspot.points[0];
+            if (!first) return;
             ctx.beginPath();
             ctx.moveTo(
-              (hotspot.points[0].x * canvas.width) / scale,
-              (hotspot.points[0].y * canvas.height) / scale
+              (first.x * canvas.width) / scale,
+              (first.y * canvas.height) / scale
             );
             hotspot.points.slice(1).forEach((point) => {
               ctx.lineTo(

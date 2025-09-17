@@ -164,8 +164,8 @@ export function handleMentionKeys(
 
 export function insertMentionAtCaret(
   ref:
-    | React.RefObject<HTMLInputElement>
-    | React.RefObject<HTMLTextAreaElement>,
+    | React.RefObject<HTMLInputElement | null>
+    | React.RefObject<HTMLTextAreaElement | null>,
   setValue: (v: string) => void,
   user: User
 ) {
@@ -186,4 +186,3 @@ export function insertMentionAtCaret(
     el.focus();
   });
 }
-

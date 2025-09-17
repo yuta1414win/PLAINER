@@ -13,21 +13,14 @@ import {
   Layers,
   Loader2,
   CheckCircle,
-  AlertCircle,
-  Info,
-  X,
   ChevronDown,
   ChevronRight,
-  Sliders,
   Target,
   Clock,
   TrendingUp,
   Eye,
   Play,
-  Pause,
-  RefreshCw,
   Download,
-  Upload,
   Share2,
 } from 'lucide-react';
 
@@ -35,7 +28,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
@@ -45,23 +37,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 import {
   OptimizationType,
   OptimizationResult,
   OptimizationRequest,
 } from '@/lib/ai/step-optimizer';
-import { Step, Project, UUID } from '@/lib/types';
+import { Step, Project } from '@/lib/types';
 
 // ============================================================================
 // Types for UI Components
@@ -239,14 +225,13 @@ export default function OptimizationPanel({
         isRunning: true,
         currentType: type,
         progress: 0,
-        error: undefined,
       }));
 
       try {
         const request: OptimizationRequest = {
           type,
           steps,
-          project,
+          ...(project ? { project } : {}),
           preferences: {
             priority: settings.priority,
             targetAudience: settings.targetAudience,
@@ -254,7 +239,7 @@ export default function OptimizationPanel({
             language: 'en',
             brandTone: 'professional',
           },
-        };
+        } as any;
 
         await onOptimizationStart(request);
 
@@ -372,10 +357,12 @@ export default function OptimizationPanel({
                   </TabsContent>
 
                   <TabsContent value="results" className="space-y-4">
-                    <OptimizationResults
-                      result={state.result}
-                      onApply={handleApplyResult}
-                    />
+                    {state.result && (
+                      <OptimizationResults
+                        result={state.result}
+                        onApply={handleApplyResult}
+                      />
+                    )}
                   </TabsContent>
 
                   <TabsContent value="history" className="space-y-4">
@@ -776,7 +763,7 @@ function OptimizationResults({ result, onApply }: OptimizationResultsProps) {
         <CardContent>
           <ScrollArea className="h-64">
             <div className="space-y-3">
-              {result.suggestions.slice(0, 5).map((suggestion, index) => (
+              {result.suggestions.slice(0, 5).map((suggestion) => (
                 <div key={suggestion.id} className="border rounded-lg p-3">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">

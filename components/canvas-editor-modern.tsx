@@ -4,30 +4,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import {
-  MousePointer2,
-  Square,
-  Circle,
-  Pen,
-  Type,
-  Filter,
-  Grid,
-  ZoomIn,
-  ZoomOut,
-  Move,
-  RotateCcw,
-  Copy,
-  Trash2,
-  Edit,
-  Eye,
-  EyeOff,
-  Layers,
-  Sparkles,
-  ArrowUpRight,
-  Minus,
-  Maximize2,
-  Search,
-} from 'lucide-react';
+import { Grid, ZoomIn, ZoomOut, RotateCcw, Eye, EyeOff, Sparkles, Maximize2 } from 'lucide-react';
 import { FloatingToolbar, type ToolType } from '@/components/floating-toolbar';
 import { CanvasContextMenu } from '@/components/canvas-context-menu';
 import { cn } from '@/lib/utils';
@@ -160,6 +137,7 @@ export function CanvasEditorModern({
       const limit = Math.min(5, candidates.length);
       for (let i = 0; i < limit; i++) {
         const c = candidates[i];
+        if (!c) continue;
         const nx = Math.max(0, Math.min(1, c.x / img.width));
         const ny = Math.max(0, Math.min(1, c.y / img.height));
         const nw = Math.max(0, Math.min(1, c.width / img.width));
@@ -453,7 +431,7 @@ export function CanvasEditorModern({
         canvasState.selectedElement?.id === mask.id;
 
       // マスク描画
-      const opacity = mask.opacity !== undefined ? mask.opacity : 0.5;
+      const opacity = mask.style?.opacity ?? 0.5;
       ctx.fillStyle = isSelected
         ? `rgba(0, 0, 0, ${opacity * 0.8})`
         : `rgba(0, 0, 0, ${opacity})`;
@@ -518,13 +496,13 @@ export function CanvasEditorModern({
       const { type, id } = canvasState.selectedElement;
       switch (type) {
         case 'hotspot':
-          deleteHotspot(id);
+          deleteHotspot(step.id as any, id as any);
           break;
         case 'annotation':
-          deleteAnnotation(step.id, id);
+          deleteAnnotation(step.id as any, id as any);
           break;
         case 'mask':
-          deleteMask(step.id, id);
+          deleteMask(step.id as any, id as any);
           break;
       }
       setCanvasState((prev) => ({ ...prev, selectedElement: null }));
@@ -564,7 +542,7 @@ export function CanvasEditorModern({
           x: nx as any,
           y: ny as any,
           style: {
-            color: '#1f2937',
+            color: '#1f2937' as any,
             fontSize: 14,
             fontWeight: 'normal',
           },
@@ -604,7 +582,7 @@ export function CanvasEditorModern({
       const deltaX = x - canvasState.dragStart.x;
       const deltaY = y - canvasState.dragStart.y;
 
-      if (editorMode === 'pan') {
+      if (editorMode === 'select') {
         setCanvasState((prev) => ({
           ...prev,
           offsetX: prev.offsetX + deltaX,

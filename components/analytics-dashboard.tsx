@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   BarChart,
   Bar,
@@ -27,12 +27,9 @@ import {
   Activity,
   Calendar,
   Download,
-  Filter,
   RefreshCw,
-  ArrowUp,
   ArrowDown,
   Target,
-  MousePointer,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -47,12 +44,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
-import {
-  AnalyticsTracker,
-  AnalyticsMetrics,
-  StepMetric,
-  TimeSeriesData,
-} from '@/lib/analytics/tracker';
+import { AnalyticsTracker, AnalyticsMetrics } from '@/lib/analytics/tracker';
 import { generateInsights, type InsightsResult } from '@/lib/analytics/insights';
 
 interface AnalyticsDashboardProps {
@@ -74,6 +66,29 @@ const COLORS = [
   '#F97316', // orange
 ];
 
+const getDateRange = (
+  range: DateRange
+): { start: Date; end: Date } | undefined => {
+  if (range === 'all') return undefined;
+
+  const end = new Date();
+  const start = new Date();
+
+  switch (range) {
+    case '7d':
+      start.setDate(start.getDate() - 7);
+      break;
+    case '30d':
+      start.setDate(start.getDate() - 30);
+      break;
+    case '90d':
+      start.setDate(start.getDate() - 90);
+      break;
+  }
+
+  return { start, end };
+};
+
 export function AnalyticsDashboard({
   projectId,
   className,
@@ -88,8 +103,7 @@ export function AnalyticsDashboard({
     return generateInsights(metrics);
   }, [metrics]);
 
-  // データ取得
-  const loadMetrics = async () => {
+  const loadMetrics = useCallback(async () => {
     setLoading(true);
     try {
       const tracker = AnalyticsTracker.getInstance(projectId);
@@ -101,11 +115,12 @@ export function AnalyticsDashboard({
     } finally {
       setLoading(false);
     }
-  };
+  }, [projectId, dateRange]);
 
+  // データ取得
   useEffect(() => {
     loadMetrics();
-  }, [projectId, dateRange]);
+  }, [loadMetrics]);
 
   // 自動更新
   useEffect(() => {
@@ -113,37 +128,9 @@ export function AnalyticsDashboard({
       const interval = setInterval(loadMetrics, 30000); // 30秒ごと
       return () => clearInterval(interval);
     }
-  }, [autoRefresh, projectId, dateRange]);
-
-  // 日付範囲計算
-  const getDateRange = (
-    range: DateRange
-  ): { start: Date; end: Date } | undefined => {
-    if (range === 'all') return undefined;
-
-    const end = new Date();
-    const start = new Date();
-
-    switch (range) {
-      case '7d':
-        start.setDate(start.getDate() - 7);
-        break;
-      case '30d':
-        start.setDate(start.getDate() - 30);
-        break;
-      case '90d':
-        start.setDate(start.getDate() - 90);
-        break;
-    }
-
-    return { start, end };
-  };
+  }, [autoRefresh, loadMetrics]);
 
   // メトリクス計算
-  const calculateTrend = (current: number, previous: number): number => {
-    if (previous === 0) return current > 0 ? 100 : 0;
-    return ((current - previous) / previous) * 100;
-  };
 
   // ステップファネルデータ
   const funnelData = useMemo(() => {
@@ -155,8 +142,8 @@ export function AnalyticsDashboard({
     let remaining = 100;
 
     return steps.map((step, index) => {
-      const dropoff =
-        index === 0 ? 0 : (1 - step.completions / steps[0].views) * 100;
+      const baseViews = steps[0]?.views ?? 1;
+      const dropoff = index === 0 ? 0 : (1 - step.completions / baseViews) * 100;
       const value = remaining;
       remaining = remaining * (step.completions / step.views);
 
@@ -381,13 +368,13 @@ export function AnalyticsDashboard({
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis
                     dataKey="date"
-                    tickFormatter={(date) =>
+                    tickFormatter={(date: string | number | Date) =>
                       new Date(date).toLocaleDateString()
                     }
                   />
                   <YAxis />
                   <Tooltip
-                    labelFormatter={(date) =>
+                    labelFormatter={(date: string | number | Date) =>
                       new Date(date).toLocaleDateString()
                     }
                   />
@@ -549,7 +536,7 @@ export function AnalyticsDashboard({
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" />
                   <YAxis />
-                  <Tooltip formatter={(value) => `${value}%`} />
+                  <Tooltip formatter={(value: number | string) => `${value}%`} />
                   <Legend />
                   <Line
                     type="monotone"
@@ -580,7 +567,7 @@ export function AnalyticsDashboard({
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, percent }) =>
+                    label={({ name, percent }: { name: string; percent: number }) =>
                       `${name} ${(percent * 100).toFixed(0)}%`
                     }
                     outerRadius={80}
