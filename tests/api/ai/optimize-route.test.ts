@@ -1,26 +1,34 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import type { OptimizationRequest, OptimizationResult } from '@/lib/ai/step-optimizer';
-import type { GeneratedContent, ContentRequest } from '@/lib/ai/content-generator';
-import type { FlowAnalysisResult, FlowAnalysisRequest } from '@/lib/ai/flow-analyzer';
+import type {
+  OptimizationRequest,
+  OptimizationResult,
+} from '@/lib/ai/step-optimizer';
+import type {
+  GeneratedContent,
+  ContentRequest,
+} from '@/lib/ai/content-generator';
+import type {
+  FlowAnalysisResult,
+  FlowAnalysisRequest,
+} from '@/lib/ai/flow-analyzer';
 import type { Step } from '@/lib/types';
 
-const { mockOptimize, mockGenerateContent, mockAnalyzeFlow } = vi.hoisted(() => ({
-  mockOptimize: vi.fn<
-    (request: OptimizationRequest) => Promise<OptimizationResult>
-  >(),
-  mockGenerateContent: vi.fn<
-    (request: ContentRequest) => Promise<GeneratedContent>
-  >(),
-  mockAnalyzeFlow: vi.fn<
-    (request: FlowAnalysisRequest) => Promise<FlowAnalysisResult>
-  >(),
-}));
+const { mockOptimize, mockGenerateContent, mockAnalyzeFlow } = vi.hoisted(
+  () => ({
+    mockOptimize:
+      vi.fn<(request: OptimizationRequest) => Promise<OptimizationResult>>(),
+    mockGenerateContent:
+      vi.fn<(request: ContentRequest) => Promise<GeneratedContent>>(),
+    mockAnalyzeFlow:
+      vi.fn<(request: FlowAnalysisRequest) => Promise<FlowAnalysisResult>>(),
+  })
+);
 
 vi.mock('@/lib/ai/step-optimizer', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/ai/step-optimizer')>(
-    '@/lib/ai/step-optimizer'
-  );
+  const actual = await vi.importActual<
+    typeof import('@/lib/ai/step-optimizer')
+  >('@/lib/ai/step-optimizer');
   return {
     ...actual,
     StepOptimizer: class {
@@ -30,9 +38,9 @@ vi.mock('@/lib/ai/step-optimizer', async () => {
 });
 
 vi.mock('@/lib/ai/content-generator', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/ai/content-generator')>(
-    '@/lib/ai/content-generator'
-  );
+  const actual = await vi.importActual<
+    typeof import('@/lib/ai/content-generator')
+  >('@/lib/ai/content-generator');
   return {
     ...actual,
     ContentGenerator: class {
@@ -101,7 +109,7 @@ const optimizationResult: OptimizationResult = {
 };
 
 const generatedContent: GeneratedContent = {
-  id: 'content-1',
+  id: 'content-1' as UUID,
   type: 'description',
   content: 'Improved description',
   confidence: 0.85,
@@ -186,7 +194,9 @@ afterEach(() => {
 describe('optimize route helpers', () => {
   it('rejects invalid optimization requests', () => {
     expect(validateOptimizationRequest(undefined)).toBe(false);
-    expect(validateOptimizationRequest({ type: 'flow_optimization', steps: [] })).toBe(false);
+    expect(
+      validateOptimizationRequest({ type: 'flow_optimization', steps: [] })
+    ).toBe(false);
 
     const valid = validateOptimizationRequest({
       type: 'flow_optimization',
@@ -215,10 +225,16 @@ describe('optimize route helpers', () => {
       payloads.push(decoder.decode(value));
     }
 
-    expect(payloads.some((chunk) => chunk.includes('Starting optimization'))).toBe(true);
-    expect(payloads.some((chunk) => chunk.includes('Generating suggestions'))).toBe(true);
+    expect(
+      payloads.some((chunk) => chunk.includes('Starting optimization'))
+    ).toBe(true);
+    expect(
+      payloads.some((chunk) => chunk.includes('Generating suggestions'))
+    ).toBe(true);
 
-    const resultEvent = payloads.find((chunk) => chunk.includes('"type":"result"'));
+    const resultEvent = payloads.find((chunk) =>
+      chunk.includes('"type":"result"')
+    );
     expect(resultEvent).toBeDefined();
     const dataPayload = JSON.parse(resultEvent!.replace(/^data:\s*/, '')) as {
       type: string;
@@ -247,7 +263,9 @@ describe('optimize route POST handler', () => {
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
-    expect(response.headers.get('x-ratelimit-limit')).toBe(String(RATE_LIMIT_CONFIG.maxRequests));
+    expect(response.headers.get('x-ratelimit-limit')).toBe(
+      String(RATE_LIMIT_CONFIG.maxRequests)
+    );
   });
 
   it('returns optimization results for valid payloads', async () => {
