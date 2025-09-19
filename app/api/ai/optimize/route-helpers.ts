@@ -44,7 +44,15 @@ export const RATE_LIMIT_CONFIG = {
   windowMs: RATE_LIMIT.windowMs,
 };
 
-export function checkRateLimit(clientId: string): boolean {
+export interface RateLimitStatus {
+  allowed: boolean;
+  limit: number;
+  remaining: number;
+  reset: number;
+  retryAfterSeconds?: number;
+}
+
+export function checkRateLimit(clientId: string): RateLimitStatus {
   const now = Date.now();
   const clientData = RATE_LIMIT.requestCounts.get(clientId);
 
@@ -53,15 +61,32 @@ export function checkRateLimit(clientId: string): boolean {
       count: 1,
       resetTime: now + RATE_LIMIT.windowMs,
     });
-    return true;
+    return {
+      allowed: true,
+      limit: RATE_LIMIT.maxRequests,
+      remaining: RATE_LIMIT.maxRequests - 1,
+      reset: now + RATE_LIMIT.windowMs,
+    };
   }
 
   if (clientData.count >= RATE_LIMIT.maxRequests) {
-    return false;
+    const retryAfterMs = Math.max(0, clientData.resetTime - now);
+    return {
+      allowed: false,
+      limit: RATE_LIMIT.maxRequests,
+      remaining: 0,
+      reset: clientData.resetTime,
+      retryAfterSeconds: Math.ceil(retryAfterMs / 1000),
+    };
   }
 
-  clientData.count++;
-  return true;
+  clientData.count += 1;
+  return {
+    allowed: true,
+    limit: RATE_LIMIT.maxRequests,
+    remaining: Math.max(0, RATE_LIMIT.maxRequests - clientData.count),
+    reset: clientData.resetTime,
+  };
 }
 
 export function validateOptimizationRequest(data: unknown): data is OptimizationRequest {
@@ -149,5 +174,88 @@ export async function handleStreamingResponse(
 }
 
 export function getClientIdFromRequest(request: NextRequest): string {
-  return request.headers.get('x-forwarded-for') || 'unknown';
+  const headerFirst = (value: string | null) => {
+    if (!value) return undefined;
+    const parts = value.split(',').map((part) => part.trim()).filter(Boolean);
+    return parts[0];
+  };
+
+  return (
+    headerFirst(request.headers.get('cf-connecting-ip')) ||
+    headerFirst(request.headers.get('x-forwarded-for')) ||
+    request.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
+
+const DEFAULT_ALLOWED_ORIGIN = '*';
+
+function getAllowedOrigins(): string[] {
+  const raw = process.env.API_ALLOWED_ORIGINS;
+  if (!raw) return [DEFAULT_ALLOWED_ORIGIN];
+  const parsed = raw
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  return parsed.length > 0 ? parsed : [DEFAULT_ALLOWED_ORIGIN];
+}
+
+function resolveAllowedOrigin(origin: string | null): { value: string; vary: boolean } | null {
+  const allowedOrigins = getAllowedOrigins();
+  const allowsAny = allowedOrigins.includes('*');
+
+  if (allowsAny) {
+    return { value: '*', vary: false };
+  }
+
+  if (!origin) return null;
+
+  if (allowedOrigins.includes(origin)) {
+    return { value: origin, vary: true };
+  }
+
+  return null;
+}
+
+export interface CorsHeaderOptions {
+  isPreflight?: boolean;
+}
+
+export function buildCorsHeaders(
+  origin: string | null,
+  options: CorsHeaderOptions = {}
+): Record<string, string> | null {
+  const resolved = resolveAllowedOrigin(origin);
+  if (!resolved) return null;
+
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Origin': resolved.value,
+    'Access-Control-Expose-Headers':
+      'X-Request-ID, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset',
+  };
+
+  if (resolved.vary) {
+    headers.Vary = 'Origin';
+  }
+
+  if (options.isPreflight) {
+    headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
+    headers['Access-Control-Allow-Headers'] =
+      'Content-Type, Authorization, X-Requested-With, X-Request-ID';
+    headers['Access-Control-Max-Age'] = '86400';
+  }
+
+  return headers;
+}
+
+export function withRateLimitHeaders(
+  headers: Record<string, string>,
+  status: RateLimitStatus
+): Record<string, string> {
+  return {
+    ...headers,
+    'X-RateLimit-Limit': String(status.limit),
+    'X-RateLimit-Remaining': String(status.remaining),
+    'X-RateLimit-Reset': String(Math.ceil(status.reset / 1000)),
+  };
 }
