@@ -41,15 +41,7 @@ export interface Annotation extends Shape {
   autoPosition?: boolean;
 }
 
-// マスクの型定義
-export interface Mask extends Shape {
-  shape: 'rect' | 'circle'; // 拡張可能
-  w: number; // 0-1 normalized
-  h: number; // 0-1 normalized
-  blurIntensity: number; // 0-100
-  opacity?: number; // 0-1
-  borderRadius?: number;
-}
+// マスクの型定義 - メインのMask型はlib/types.tsで定義されています
 
 // CTAの型定義
 export interface CTA {
