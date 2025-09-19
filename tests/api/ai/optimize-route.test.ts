@@ -57,15 +57,16 @@ import { POST } from '@/app/api/ai/optimize/route';
 import {
   validateOptimizationRequest,
   handleStreamingResponse,
+  RATE_LIMIT_CONFIG,
   type AIResponsePayload,
 } from '@/app/api/ai/optimize/route-helpers';
 
 const baseStep: Step = {
-  id: 'step-1',
+  id: 'step-1' as UUID,
   name: 'Step 1',
   title: 'Initial Step',
   description: 'Demo step for testing',
-  image: 'data:image/png;base64,test',
+  image: 'data:image/png;base64,test' as URLString,
   hotspots: [],
   annotations: [],
   masks: [],
@@ -237,6 +238,7 @@ describe('optimize route POST handler', () => {
       headers: {
         'content-type': 'application/json',
         'x-forwarded-for': 'test-client-invalid',
+        origin: 'https://client.test',
       },
     } as RequestInit);
 
@@ -244,6 +246,8 @@ describe('optimize route POST handler', () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
+    expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    expect(response.headers.get('x-ratelimit-limit')).toBe(String(RATE_LIMIT_CONFIG.maxRequests));
   });
 
   it('returns optimization results for valid payloads', async () => {
@@ -256,6 +260,7 @@ describe('optimize route POST handler', () => {
       headers: {
         'content-type': 'application/json',
         'x-forwarded-for': 'test-client-success',
+        origin: 'https://client.test',
       },
     } as RequestInit);
 
@@ -265,5 +270,66 @@ describe('optimize route POST handler', () => {
     expect(body.success).toBe(true);
     expect(body.data).toMatchObject({ type: 'flow_optimization' });
     expect(mockOptimize).toHaveBeenCalledTimes(1);
+    expect(response.headers.get('x-request-id')).toBeTruthy();
+    expect(response.headers.get('x-ratelimit-remaining')).toBeDefined();
+  });
+
+  it('rejects requests from disallowed origins', async () => {
+    const original = process.env.API_ALLOWED_ORIGINS;
+    process.env.API_ALLOWED_ORIGINS = 'https://allowed.example';
+
+    const request = new NextRequest('http://localhost/api/ai/optimize', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'optimization',
+        data: optimizationRequest,
+      }),
+      headers: {
+        'content-type': 'application/json',
+        'x-forwarded-for': 'test-client-blocked',
+        origin: 'https://blocked.example',
+      },
+    } as RequestInit);
+
+    const response = await POST(request);
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBe('Origin not allowed.');
+    expect(response.headers.get('access-control-allow-origin')).toBeNull();
+
+    if (original === undefined) {
+      delete process.env.API_ALLOWED_ORIGINS;
+    } else {
+      process.env.API_ALLOWED_ORIGINS = original;
+    }
+  });
+
+  it('returns rate limit headers when limit is exceeded', async () => {
+    const clientId = `rate-limit-client-${Date.now()}`;
+    const makeRequest = () =>
+      new NextRequest('http://localhost/api/ai/optimize', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'optimization',
+          data: optimizationRequest,
+        }),
+        headers: {
+          'content-type': 'application/json',
+          'x-forwarded-for': clientId,
+          origin: 'https://client.test',
+        },
+      } as RequestInit);
+
+    let response: Response | undefined;
+    for (let i = 0; i < RATE_LIMIT_CONFIG.maxRequests; i++) {
+      response = await POST(makeRequest());
+      expect(response.status).toBe(200);
+    }
+
+    const limitedResponse = await POST(makeRequest());
+    expect(limitedResponse.status).toBe(429);
+    expect(limitedResponse.headers.get('retry-after')).toBeTruthy();
+    expect(limitedResponse.headers.get('x-ratelimit-remaining')).toBe('0');
   });
 });
