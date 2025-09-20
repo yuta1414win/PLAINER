@@ -22,7 +22,6 @@ import {
 } from 'lucide-react';
 import { EmbedCode } from '@/components/embed-code';
 import { cn } from '@/lib/utils';
-import { escapeHtml } from '@/lib/utils/string';
 import type { Project, Step } from '@/lib/types';
 
 interface HTMLPreviewProps {
@@ -100,150 +99,15 @@ export function HTMLPreview({
     if (!project || !currentStep) return '';
 
     const { theme } = project;
-    const { title, description, hotspots, annotations, masks, cta, image } =
-      currentStep;
+    const { title, description, hotspots, annotations, masks } = currentStep;
 
-    const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
-    const formatPercentage = (value: number) => {
-      const percent = (clamp01(value) * 100).toFixed(2);
-      return `${percent.replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')}%`;
-    };
-    const escapeText = (value?: string | null) =>
-      value ? escapeHtml(value) : '';
-
-    const hotspotMarkup = hotspots
-      .map((hotspot) => {
-        const styleParts = [
-          `left: ${formatPercentage(hotspot.x)}`,
-          `top: ${formatPercentage(hotspot.y)}`,
-        ];
-
-        if (hotspot.shape === 'rect') {
-          styleParts.push(`width: ${formatPercentage(hotspot.w ?? 0)}`);
-          styleParts.push(`height: ${formatPercentage(hotspot.h ?? 0)}`);
-        } else if (hotspot.shape === 'circle') {
-          const radius = hotspot.r ?? 0;
-          const diameter = clamp01(radius * 2);
-          const left = clamp01(hotspot.x - radius);
-          const top = clamp01(hotspot.y - radius);
-          styleParts[0] = `left: ${formatPercentage(left)}`;
-          styleParts[1] = `top: ${formatPercentage(top)}`;
-          styleParts.push(`width: ${formatPercentage(diameter)}`);
-          styleParts.push(`height: ${formatPercentage(diameter)}`);
-        } else if (hotspot.shape === 'free' && hotspot.points?.length) {
-          const xs = hotspot.points.map((point) => point.x);
-          const ys = hotspot.points.map((point) => point.y);
-          const minX = clamp01(Math.min(...xs));
-          const minY = clamp01(Math.min(...ys));
-          const maxX = clamp01(Math.max(...xs));
-          const maxY = clamp01(Math.max(...ys));
-          styleParts[0] = `left: ${formatPercentage(minX)}`;
-          styleParts[1] = `top: ${formatPercentage(minY)}`;
-          styleParts.push(
-            `width: ${formatPercentage(Math.max(maxX - minX, 0))}`
-          );
-          styleParts.push(
-            `height: ${formatPercentage(Math.max(maxY - minY, 0))}`
-          );
-        }
-
-        if (hotspot.style?.borderWidth !== undefined) {
-          styleParts.push(`border-width: ${hotspot.style.borderWidth}px`);
-        }
-        if (hotspot.style?.borderStyle) {
-          styleParts.push(`border-style: ${hotspot.style.borderStyle}`);
-        }
-        if (hotspot.style?.color) {
-          styleParts.push(`border-color: ${hotspot.style.color}`);
-        }
-
-        const tooltip = hotspot.tooltipText ?? hotspot.label ?? '';
-        const titleAttr = tooltip
-          ? ` title="${escapeText(tooltip)}"`
-          : '';
-        const ariaLabel = hotspot.label
-          ? ` aria-label="${escapeText(hotspot.label)}"`
-          : '';
-
-        return `<div class="hotspot ${hotspot.shape}" style="${styleParts.join(
-          '; '
-        )}"${titleAttr}${ariaLabel}></div>`;
-      })
-      .join('');
-
-    const annotationMarkup = annotations
-      .map((annotation) => {
-        const styleParts = [
-          `left: ${formatPercentage(annotation.x)}`,
-          `top: ${formatPercentage(annotation.y)}`,
-        ];
-
-        if (annotation.style?.color) {
-          styleParts.push(`color: ${annotation.style.color}`);
-        }
-        if (annotation.style?.backgroundColor) {
-          styleParts.push(
-            `background-color: ${annotation.style.backgroundColor}`
-          );
-        }
-        if (annotation.style?.fontSize) {
-          styleParts.push(`font-size: ${annotation.style.fontSize}px`);
-        }
-        if (annotation.style?.fontWeight) {
-          styleParts.push(`font-weight: ${annotation.style.fontWeight}`);
-        }
-
-        return `<div class="annotation" style="${styleParts.join(
-          '; '
-        )}">${escapeText(annotation.text)}</div>`;
-      })
-      .join('');
-
-    const maskMarkup = masks
-      .map((mask) => {
-        const styleParts = [
-          `left: ${formatPercentage(mask.x)}`,
-          `top: ${formatPercentage(mask.y)}`,
-          `width: ${formatPercentage(mask.w)}`,
-          `height: ${formatPercentage(mask.h)}`,
-          `backdrop-filter: blur(${Math.max(mask.blurIntensity, 0)}px)`,
-        ];
-
-        if (mask.opacity !== undefined) {
-          styleParts.push(`opacity: ${mask.opacity}`);
-        }
-        if (mask.style?.backgroundColor) {
-          styleParts.push(`background-color: ${mask.style.backgroundColor}`);
-        }
-
-        return `<div class="mask-overlay" style="${styleParts.join(
-          '; '
-        )}"></div>`;
-      })
-      .join('');
-
-    const ctaMarkup =
-      cta && cta.label && cta.url
-        ? `
-                <div style="text-align: center; margin-top: 30px;">
-                    <a href="${escapeText(cta.url)}" class="cta-button" target="${
-                        cta.target ?? '_blank'
-                      }" rel="noopener noreferrer">
-                        ${escapeText(cta.label)}
-                    </a>
-                </div>
-            `
-        : '';
-
-    const escapedTitle = escapeText(title);
-    const escapedDescription = escapeText(description);
-
-    return `<!DOCTYPE html>
+    // 基本的なHTML構造を生成
+    const html = `<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${escapedTitle}</title>
+    <title>${title}</title>
     <style>
         :root {
             --primary-color: ${theme.primaryColor};
@@ -402,39 +266,73 @@ export function HTMLPreview({
 <body>
     <div class="guide-container">
         <header class="guide-header">
-            <h1 class="guide-title">${escapedTitle}</h1>
-            ${
-              escapedDescription
-                ? `<p class="guide-description">${escapedDescription}</p>`
-                : ''
-            }
+            <h1 class="guide-title">${title}</h1>
+            ${description ? `<p class="guide-description">${description}</p>` : ''}
         </header>
         
         <div class="step-content">
             ${
-              image
+              currentStep.imageUrl
                 ? `
                 <div class="step-image">
-                    <img src="${image}" alt="${escapedTitle}" />
+                    <img src="${currentStep.imageUrl}" alt="${title}" />
                     
-                    ${hotspotMarkup}
+                    ${hotspots
+                      .map(
+                        (hotspot) => `
+                        <div class="hotspot ${hotspot.shape}" 
+                             style="left: ${hotspot.x * 100}%; top: ${hotspot.y * 100}%; width: ${hotspot.width * 100}%; height: ${hotspot.height * 100}%;"
+                             title="${hotspot.action?.type === 'tooltip' ? hotspot.action.content : ''}">
+                        </div>
+                    `
+                      )
+                      .join('')}
                     
-                    ${annotationMarkup}
+                    ${annotations
+                      .map(
+                        (annotation) => `
+                        <div class="annotation"
+                             style="left: ${annotation.x * 100}%; top: ${annotation.y * 100}%; color: ${annotation.textColor}; background-color: ${annotation.backgroundColor};">
+                            ${annotation.text}
+                        </div>
+                    `
+                      )
+                      .join('')}
                     
-                    ${maskMarkup}
+                    ${masks
+                      .map(
+                        (mask) => `
+                        <div class="mask-overlay"
+                             style="left: ${mask.x * 100}%; top: ${mask.y * 100}%; width: ${mask.width * 100}%; height: ${mask.height * 100}%; backdrop-filter: blur(${mask.intensity}px);">
+                        </div>
+                    `
+                      )
+                      .join('')}
                 </div>
             `
                 : ''
             }
             
-            ${ctaMarkup}
+            ${
+              currentStep.cta?.enabled &&
+              currentStep.cta.text &&
+              currentStep.cta.url
+                ? `
+                <div style="text-align: center; margin-top: 30px;">
+                    <a href="${currentStep.cta.url}" class="cta-button" target="_blank" rel="noopener noreferrer">
+                        ${currentStep.cta.text}
+                    </a>
+                </div>
+            `
+                : ''
+            }
         </div>
     </div>
     
     <script>
         // インタラクティブ機能
-        document.querySelectorAll('.hotspot').forEach((hotspot) => {
-            hotspot.addEventListener('click', function () {
+        document.querySelectorAll('.hotspot').forEach(hotspot => {
+            hotspot.addEventListener('click', function() {
                 const title = this.getAttribute('title');
                 if (title) {
                     alert(title);
@@ -444,6 +342,8 @@ export function HTMLPreview({
     </script>
 </body>
 </html>`;
+
+    return html;
   }, [project, currentStep]);
 
   // プレビュー生成

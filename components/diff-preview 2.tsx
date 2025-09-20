@@ -135,21 +135,18 @@ export function DiffPreview({
       });
     }
 
-    // 画像の比較
-    if (currentStep.image !== compareStep.image) {
+    // 画像URLの比較
+    if (currentStep.imageUrl !== compareStep.imageUrl) {
       diffs.push({
         type: 'modified',
-        field: 'image',
-        oldValue: compareStep.image,
-        newValue: currentStep.image,
+        field: 'imageUrl',
+        oldValue: compareStep.imageUrl,
+        newValue: currentStep.imageUrl,
         description: '背景画像が変更されました',
       });
     }
 
     // ホットスポットの比較
-    const formatHotspotLabel = (hotspot: Hotspot) =>
-      hotspot.label || hotspot.tooltipText || hotspot.id;
-
     const currentHotspots = new Map(currentStep.hotspots.map((h) => [h.id, h]));
     const compareHotspots = new Map(compareStep.hotspots.map((h) => [h.id, h]));
 
@@ -160,7 +157,7 @@ export function DiffPreview({
           type: 'added',
           field: 'hotspots',
           newValue: hotspot,
-          description: `ホットスポット「${formatHotspotLabel(hotspot)}」が追加されました`,
+          description: `ホットスポット「${hotspot.action?.content || 'Untitled'}」が追加されました`,
         });
       }
     });
@@ -172,7 +169,7 @@ export function DiffPreview({
           type: 'removed',
           field: 'hotspots',
           oldValue: hotspot,
-          description: `ホットスポット「${formatHotspotLabel(hotspot)}」が削除されました`,
+          description: `ホットスポット「${hotspot.action?.content || 'Untitled'}」が削除されました`,
         });
       }
     });
@@ -186,7 +183,7 @@ export function DiffPreview({
           field: 'hotspots',
           oldValue: compare,
           newValue: current,
-          description: `ホットスポット「${formatHotspotLabel(current)}」が変更されました`,
+          description: `ホットスポット「${current.action?.content || 'Untitled'}」が変更されました`,
         });
       }
     });

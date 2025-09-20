@@ -10,12 +10,26 @@ import { CanvasContextMenu } from '@/components/canvas-context-menu';
 import { cn } from '@/lib/utils';
 import { useEditorStore } from '@/lib/store';
 import { useKeyboardFocus } from '@/hooks/use-keyboard-focus';
-import type { Hotspot, Annotation, Mask, Step } from '@/lib/types';
+import type {
+  Hotspot,
+  Annotation,
+  Mask,
+  Step,
+  NormalizedCoordinate,
+} from '@/lib/types';
 import type { UserCursor } from '@/lib/collaboration/types';
 import { UserCursors } from '@/components/collaboration/user-cursors';
 import { useIntelligentFeatures } from '@/hooks/use-intelligent-features';
 import { nanoid } from 'nanoid';
 import { useNotifications } from '@/lib/stores';
+
+const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
+const POSITION_EPSILON = 0.0005;
+
+const ANNOTATION_PADDING_X = 8;
+const ANNOTATION_PADDING_Y = 6;
+const ANNOTATION_FONT_FALLBACK =
+  'system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif';
 
 interface CanvasEditorProps {
   step: Step;
@@ -41,6 +55,13 @@ interface CanvasState {
   selectedTool: ToolType;
   showFloatingToolbar: boolean;
   clipboard: any | null;
+  draggingElement:
+    | {
+        type: 'annotation';
+        id: string;
+      }
+    | null;
+  dragOffsetNormalized: { x: number; y: number } | null;
 }
 
 export function CanvasEditorModern({
@@ -63,7 +84,12 @@ export function CanvasEditorModern({
     selectedTool: 'select',
     showFloatingToolbar: true,
     clipboard: null,
+    draggingElement: null,
+    dragOffsetNormalized: null,
   });
+  const [hoveredAnnotationId, setHoveredAnnotationId] = useState<string | null>(
+    null
+  );
   const [imageLoaded, setImageLoaded] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
   const { suggestHotspots, checkAccessibility } = useIntelligentFeatures();
@@ -170,6 +196,97 @@ export function CanvasEditorModern({
       showWarning?.('AI候補の生成に失敗しました');
     }
   }, [suggestHotspots, addHotspot, step.id, checkAccessibility, showSuccess, showWarning, showInfo]);
+
+  const getNormalizedPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        return {
+          x: 0 as NormalizedCoordinate,
+          y: 0 as NormalizedCoordinate,
+        };
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const localX = clientX - rect.left;
+      const localY = clientY - rect.top;
+
+      const normalizedX = clamp01((localX - canvasState.offsetX) / canvas.width) as NormalizedCoordinate;
+      const normalizedY = clamp01((localY - canvasState.offsetY) / canvas.height) as NormalizedCoordinate;
+
+      return { x: normalizedX, y: normalizedY };
+    },
+    [canvasState.offsetX, canvasState.offsetY]
+  );
+
+  const getAnnotationBoundingBox = useCallback(
+    (annotation: Annotation) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+
+      const text = annotation.text || '';
+      const fontSize = annotation.style?.fontSize ?? 14;
+      const fontWeight = annotation.style?.fontWeight ?? 'normal';
+
+      ctx.save();
+      ctx.font = `${fontWeight} ${fontSize}px ${ANNOTATION_FONT_FALLBACK}`;
+      const metrics = ctx.measureText(text);
+      ctx.restore();
+
+      const ascent = metrics.actualBoundingBoxAscent || fontSize;
+      const descent =
+        metrics.actualBoundingBoxDescent || Math.max(2, fontSize * 0.25);
+      const width = metrics.width + ANNOTATION_PADDING_X * 2;
+      const height = ascent + descent + ANNOTATION_PADDING_Y * 2;
+
+      const annotationX = Number(annotation.x ?? 0);
+      const annotationY = Number(annotation.y ?? 0);
+
+      const baseX = annotationX * canvas.width;
+      const baseY = annotationY * canvas.height;
+
+      return {
+        x: canvasState.offsetX + baseX - ANNOTATION_PADDING_X,
+        y: canvasState.offsetY + (baseY - ascent - ANNOTATION_PADDING_Y),
+        width,
+        height,
+      };
+    },
+    [canvasState.offsetX, canvasState.offsetY]
+  );
+
+  const hitTestAnnotation = useCallback(
+    (clientX: number, clientY: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+
+      const rect = canvas.getBoundingClientRect();
+      const localX = clientX - rect.left;
+      const localY = clientY - rect.top;
+
+      for (let i = step.annotations.length - 1; i >= 0; i -= 1) {
+        const annotation = step.annotations[i];
+        if (!annotation) continue;
+        const box = getAnnotationBoundingBox(annotation);
+        if (!box) continue;
+
+        if (
+          localX >= box.x &&
+          localX <= box.x + box.width &&
+          localY >= box.y &&
+          localY <= box.y + box.height
+        ) {
+          return { annotation, box };
+        }
+      }
+
+      return null;
+    },
+    [step.annotations, getAnnotationBoundingBox]
+  );
 
   // キャンバス描画
   const drawCanvas = useCallback(() => {
@@ -518,6 +635,8 @@ export function CanvasEditorModern({
   // Mouse event handlers
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (e.button !== 0) return;
+
       const canvas = canvasRef.current;
       if (!canvas) return;
 
@@ -525,22 +644,42 @@ export function CanvasEditorModern({
       const clientX = e.clientX - rect.left;
       const clientY = e.clientY - rect.top;
 
-      // 注釈モード: クリック位置に注釈を作成
-      if (editorMode === 'annotation') {
-        const nx = Math.max(
-          0,
-          Math.min(1, (clientX - canvasState.offsetX) / canvas.width)
+      const hit = hitTestAnnotation(e.clientX, e.clientY);
+      if (hit) {
+        const { annotation } = hit;
+        const { x: normalizedX, y: normalizedY } = getNormalizedPoint(
+          e.clientX,
+          e.clientY
         );
-        const ny = Math.max(
-          0,
-          Math.min(1, (clientY - canvasState.offsetY) / canvas.height)
+        const annotationX = annotation.x ?? (0 as NormalizedCoordinate);
+        const annotationY = annotation.y ?? (0 as NormalizedCoordinate);
+
+        setCanvasState((prev) => ({
+          ...prev,
+          selectedElement: { type: 'annotation', id: annotation.id },
+          draggingElement: { type: 'annotation', id: annotation.id },
+          dragOffsetNormalized: {
+            x: normalizedX - annotationX,
+            y: normalizedY - annotationY,
+          },
+          isDrawing: false,
+          dragStart: null,
+        }));
+        setHoveredAnnotationId(annotation.id);
+        return;
+      }
+
+      if (editorMode === 'annotation') {
+        const { x: normalizedX, y: normalizedY } = getNormalizedPoint(
+          e.clientX,
+          e.clientY
         );
 
         const newAnnotation: Annotation = {
           id: (`annotation-${Date.now()}`) as any,
           text: '新しい注釈',
-          x: nx as any,
-          y: ny as any,
+          x: normalizedX,
+          y: normalizedY,
           style: {
             color: '#1f2937' as any,
             fontSize: 14,
@@ -551,47 +690,106 @@ export function CanvasEditorModern({
         setCanvasState((prev) => ({
           ...prev,
           selectedElement: { type: 'annotation', id: newAnnotation.id },
+          draggingElement: { type: 'annotation', id: newAnnotation.id },
+          dragOffsetNormalized: { x: 0, y: 0 },
           isDrawing: false,
           dragStart: null,
         }));
+        setHoveredAnnotationId(newAnnotation.id);
         return;
       }
 
-      // それ以外はドラッグ開始（パン等）
       setCanvasState((prev) => ({
         ...prev,
         isDrawing: true,
         dragStart: { x: clientX, y: clientY },
+        draggingElement: null,
+        dragOffsetNormalized: null,
       }));
     },
-    [editorMode, canvasState.offsetX, canvasState.offsetY, addAnnotation, step.id]
+    [
+      getNormalizedPoint,
+      hitTestAnnotation,
+      editorMode,
+      addAnnotation,
+      step.id,
+    ]
   );
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!canvasState.isDrawing || !canvasState.dragStart) return;
-
       const canvas = canvasRef.current;
       if (!canvas) return;
 
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const clientX = e.clientX - rect.left;
+      const clientY = e.clientY - rect.top;
 
-      // Calculate drag delta and update offset
-      const deltaX = x - canvasState.dragStart.x;
-      const deltaY = y - canvasState.dragStart.y;
+      if (canvasState.draggingElement?.type === 'annotation') {
+        const annotationId = canvasState.draggingElement.id;
+        const annotation = step.annotations.find(
+          (item) => item.id === annotationId
+        );
+        if (!annotation) return;
 
-      if (editorMode === 'select') {
-        setCanvasState((prev) => ({
-          ...prev,
-          offsetX: prev.offsetX + deltaX,
-          offsetY: prev.offsetY + deltaY,
-          dragStart: { x, y },
-        }));
+        const { x: normalizedX, y: normalizedY } = getNormalizedPoint(
+          e.clientX,
+          e.clientY
+        );
+        const offset = canvasState.dragOffsetNormalized ?? { x: 0, y: 0 };
+
+        const targetX = clamp01(normalizedX - offset.x) as NormalizedCoordinate;
+        const targetY = clamp01(normalizedY - offset.y) as NormalizedCoordinate;
+
+        const currentX = Number(annotation.x ?? 0);
+        const currentY = Number(annotation.y ?? 0);
+
+        if (
+          Math.abs(currentX - Number(targetX)) > POSITION_EPSILON ||
+          Math.abs(currentY - Number(targetY)) > POSITION_EPSILON
+        ) {
+          updateAnnotation(step.id, annotationId as any, {
+            x: targetX,
+            y: targetY,
+          });
+        }
+        return;
+      }
+
+      if (canvasState.isDrawing && canvasState.dragStart) {
+        const deltaX = clientX - canvasState.dragStart.x;
+        const deltaY = clientY - canvasState.dragStart.y;
+
+        if (editorMode === 'select') {
+          setCanvasState((prev) => ({
+            ...prev,
+            offsetX: prev.offsetX + deltaX,
+            offsetY: prev.offsetY + deltaY,
+            dragStart: { x: clientX, y: clientY },
+          }));
+        }
+        return;
+      }
+
+      const hit = hitTestAnnotation(e.clientX, e.clientY);
+      const hoveredId = hit?.annotation.id ?? null;
+      if (hoveredAnnotationId !== hoveredId) {
+        setHoveredAnnotationId(hoveredId);
       }
     },
-    [canvasState.isDrawing, canvasState.dragStart, editorMode]
+    [
+      canvasState.draggingElement,
+      canvasState.dragOffsetNormalized,
+      canvasState.isDrawing,
+      canvasState.dragStart,
+      editorMode,
+      getNormalizedPoint,
+      hitTestAnnotation,
+      hoveredAnnotationId,
+      step.annotations,
+      step.id,
+      updateAnnotation,
+    ]
   );
 
   const handleMouseUp = useCallback(() => {
@@ -599,8 +797,43 @@ export function CanvasEditorModern({
       ...prev,
       isDrawing: false,
       dragStart: null,
+      draggingElement: null,
+      dragOffsetNormalized: null,
     }));
   }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setHoveredAnnotationId(null);
+    setCanvasState((prev) => ({
+      ...prev,
+      isDrawing: false,
+      dragStart: null,
+      draggingElement: null,
+      dragOffsetNormalized: null,
+    }));
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    if (canvasState.draggingElement) {
+      canvas.style.cursor = 'grabbing';
+    } else if (hoveredAnnotationId) {
+      canvas.style.cursor = 'grab';
+    } else if (canvasState.isDrawing && editorMode === 'select') {
+      canvas.style.cursor = 'grabbing';
+    } else if (editorMode === 'annotation') {
+      canvas.style.cursor = 'crosshair';
+    } else {
+      canvas.style.cursor = 'default';
+    }
+  }, [
+    canvasState.draggingElement,
+    canvasState.isDrawing,
+    hoveredAnnotationId,
+    editorMode,
+  ]);
 
   // Wheel zoom handler
   const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -766,6 +999,7 @@ export function CanvasEditorModern({
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseLeave}
               onWheel={handleWheel}
               role="img"
               aria-label="編集中の画像"

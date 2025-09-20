@@ -3,24 +3,36 @@
 // ============================================================================
 
 /** 正規化された座標（0-1の範囲） */
-export type NormalizedCoordinate = number & {
-  readonly __brand: 'NormalizedCoordinate';
-};
+export type NormalizedCoordinate = number;
 
 /** HEX カラーコード（#付き） */
-export type HexColor = string & { readonly __brand: 'HexColor' };
+export type HexColor = string;
 
 /** UUID v4 形式の文字列 */
-export type UUID = string & { readonly __brand: 'UUID' };
+export type UUID = string;
 
 /** URL 文字列 */
-export type URLString = string & { readonly __brand: 'URLString' };
+export type URLString = string;
 
 /** ファイル名として安全な文字列 */
-export type SafeFilename = string & { readonly __brand: 'SafeFilename' };
+export type SafeFilename = string;
 
 /** ISO 8601 形式の日時文字列 */
-export type ISODateString = string & { readonly __brand: 'ISODateString' };
+export type ISODateString = string;
+
+// ============================================================================
+// AI関連型（新タイプシステムからの再エクスポート）
+// ============================================================================
+
+export type {
+  PromptTemplateCategory,
+  PromptTemplate,
+  Suggestion,
+  LiveSession,
+  LiveMessage,
+  GenerationRequest,
+  GenerationResponse,
+} from './types/ai';
 
 // ============================================================================
 // テーマ関連
@@ -159,11 +171,13 @@ export interface MaskStyle {
 
 export interface Mask {
   readonly id: UUID;
+  readonly shape?: 'rect' | 'circle';
   readonly x: NormalizedCoordinate;
   readonly y: NormalizedCoordinate;
   readonly w: NormalizedCoordinate;
   readonly h: NormalizedCoordinate;
-  readonly blur: number; // ピクセル値
+  readonly blurIntensity: number; // 0-100
+  readonly opacity?: number; // 0-1の範囲
   readonly style?: MaskStyle;
 }
 
@@ -174,9 +188,9 @@ export interface Mask {
 export interface Step {
   readonly id: UUID;
   readonly title: string;
-  readonly description: string;
+  readonly description?: string;
   readonly image: URLString; // 画像URL
-  readonly thumbnail: URLString; // サムネイル画像URL
+  readonly thumbnail?: URLString; // サムネイル画像URL
   readonly hotspots: readonly Hotspot[];
   readonly annotations: readonly Annotation[];
   readonly cta?: CTA;
@@ -272,28 +286,6 @@ export interface Project {
   readonly updatedAt: Date;
   readonly isPublic: boolean;
   readonly shareUrl?: URLString;
-}
-
-// ============================================================================
-// プロンプトテンプレート関連
-// ============================================================================
-
-export type PromptTemplateCategory =
-  | 'ui_improvement'
-  | 'accessibility'
-  | 'responsive'
-  | 'seo'
-  | 'performance'
-  | 'structure';
-
-export interface PromptTemplate {
-  readonly id: UUID;
-  readonly name: string;
-  readonly description?: string;
-  readonly category: PromptTemplateCategory;
-  readonly prompt: string;
-  readonly variables?: readonly string[];
-  readonly isSystem?: boolean;
 }
 
 // ============================================================================

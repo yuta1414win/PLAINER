@@ -19,7 +19,14 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useEditorStore } from '@/lib/store';
-import type { Hotspot, Annotation, Mask, Step } from '@/lib/types';
+import type {
+  Hotspot,
+  Annotation,
+  Mask,
+  Step,
+  NormalizedCoordinate,
+  UUID,
+} from '@/lib/types';
 
 interface CanvasEditorProps {
   step: Step;
@@ -36,9 +43,17 @@ interface CanvasState {
   dragStart: { x: number; y: number } | null;
   selectedElement: {
     type: 'hotspot' | 'annotation' | 'mask';
-    id: string;
+    id: UUID;
   } | null;
 }
+
+const clampNormalized = (value: number): NormalizedCoordinate =>
+  Math.max(0, Math.min(1, value)) as NormalizedCoordinate;
+
+const generateId = (): UUID =>
+  (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : `id-${Date.now()}`) as UUID;
 
 export function CanvasEditor({
   step,
@@ -46,8 +61,8 @@ export function CanvasEditor({
   height = 600,
   className,
 }: CanvasEditorProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [canvasState, setCanvasState] = useState<CanvasState>({
     scale: 1,
     offsetX: 0,
@@ -57,7 +72,7 @@ export function CanvasEditor({
     selectedElement: null,
   });
   const [imageLoaded, setImageLoaded] = useState(false);
-  const imageRef = useRef<HTMLImageElement>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
 
   const {
     editorMode,
@@ -315,19 +330,33 @@ export function CanvasEditor({
 
   // マウス座標を正規化座標に変換
   const getCanvasCoordinates = useCallback(
-    (clientX: number, clientY: number) => {
+    (
+      clientX: number,
+      clientY: number
+    ): { x: NormalizedCoordinate; y: NormalizedCoordinate } => {
       const canvas = canvasRef.current;
-      if (!canvas) return { x: 0, y: 0 };
+      if (!canvas) {
+        return {
+          x: 0 as NormalizedCoordinate,
+          y: 0 as NormalizedCoordinate,
+        };
+      }
 
       const rect = canvas.getBoundingClientRect();
       const { scale, offsetX, offsetY } = canvasState;
 
       const canvasX = (clientX - rect.left - offsetX) / scale;
       const canvasY = (clientY - rect.top - offsetY) / scale;
+      const normalizedX = clampNormalized(
+        canvasX / (canvas.width / scale)
+      );
+      const normalizedY = clampNormalized(
+        canvasY / (canvas.height / scale)
+      );
 
       return {
-        x: Math.max(0, Math.min(1, canvasX / (canvas.width / scale))),
-        y: Math.max(0, Math.min(1, canvasY / (canvas.height / scale))),
+        x: normalizedX,
+        y: normalizedY,
       };
     },
     [canvasState]
@@ -351,39 +380,42 @@ export function CanvasEditor({
           break;
 
         case 'hotspot-rect':
+          const rectHotspotId = generateId();
           const rectHotspot: Hotspot = {
-            id: `hotspot-${Date.now()}`,
+            id: rectHotspotId,
             shape: 'rect',
             x: coords.x,
             y: coords.y,
-            w: 0,
-            h: 0,
+            w: 0 as NormalizedCoordinate,
+            h: 0 as NormalizedCoordinate,
           };
           addHotspot(step.id, rectHotspot);
           setCanvasState((prev) => ({
             ...prev,
-            selectedElement: { type: 'hotspot', id: rectHotspot.id },
+            selectedElement: { type: 'hotspot', id: rectHotspotId },
           }));
           break;
 
         case 'hotspot-circle':
+          const circleHotspotId = generateId();
           const circleHotspot: Hotspot = {
-            id: `hotspot-${Date.now()}`,
+            id: circleHotspotId,
             shape: 'circle',
             x: coords.x,
             y: coords.y,
-            r: 0,
+            r: 0 as NormalizedCoordinate,
           };
           addHotspot(step.id, circleHotspot);
           setCanvasState((prev) => ({
             ...prev,
-            selectedElement: { type: 'hotspot', id: circleHotspot.id },
+            selectedElement: { type: 'hotspot', id: circleHotspotId },
           }));
           break;
 
         case 'annotation':
+          const annotationId = generateId();
           const annotation: Annotation = {
-            id: `annotation-${Date.now()}`,
+            id: annotationId,
             text: '新しい注釈',
             x: coords.x,
             y: coords.y,
@@ -391,24 +423,25 @@ export function CanvasEditor({
           addAnnotation(step.id, annotation);
           setCanvasState((prev) => ({
             ...prev,
-            selectedElement: { type: 'annotation', id: annotation.id },
+            selectedElement: { type: 'annotation', id: annotationId },
           }));
           break;
 
         case 'mask':
+          const maskId = generateId();
           const mask: Mask = {
-            id: `mask-${Date.now()}`,
+            id: maskId,
             shape: 'rect',
             x: coords.x,
             y: coords.y,
-            w: 0,
-            h: 0,
+            w: 0 as NormalizedCoordinate,
+            h: 0 as NormalizedCoordinate,
             blurIntensity: 50,
           };
           addMask(step.id, mask);
           setCanvasState((prev) => ({
             ...prev,
-            selectedElement: { type: 'mask', id: mask.id },
+            selectedElement: { type: 'mask', id: maskId },
           }));
           break;
       }
@@ -446,26 +479,28 @@ export function CanvasEditor({
 
           if (hotspot.shape === 'rect') {
             updateHotspot(step.id, selectedElement.id, {
-              w: Math.abs(coords.x - startCoords.x),
-              h: Math.abs(coords.y - startCoords.y),
-              x: Math.min(startCoords.x, coords.x),
-              y: Math.min(startCoords.y, coords.y),
+              w: clampNormalized(Math.abs(coords.x - startCoords.x)),
+              h: clampNormalized(Math.abs(coords.y - startCoords.y)),
+              x: clampNormalized(Math.min(startCoords.x, coords.x)),
+              y: clampNormalized(Math.min(startCoords.y, coords.y)),
             });
           } else if (hotspot.shape === 'circle') {
             const distance = Math.sqrt(
               Math.pow(coords.x - startCoords.x, 2) +
                 Math.pow(coords.y - startCoords.y, 2)
             );
-            updateHotspot(step.id, selectedElement.id, { r: distance });
+            updateHotspot(step.id, selectedElement.id, {
+              r: clampNormalized(distance),
+            });
           }
           break;
 
         case 'mask':
           updateMask(step.id, selectedElement.id, {
-            w: Math.abs(coords.x - startCoords.x),
-            h: Math.abs(coords.y - startCoords.y),
-            x: Math.min(startCoords.x, coords.x),
-            y: Math.min(startCoords.y, coords.y),
+            w: clampNormalized(Math.abs(coords.x - startCoords.x)),
+            h: clampNormalized(Math.abs(coords.y - startCoords.y)),
+            x: clampNormalized(Math.min(startCoords.x, coords.x)),
+            y: clampNormalized(Math.min(startCoords.y, coords.y)),
           });
           break;
       }

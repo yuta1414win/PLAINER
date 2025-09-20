@@ -4,7 +4,14 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { useEditorStore } from '@/lib/store';
-import type { Hotspot, Annotation, Mask, Step } from '@/lib/types';
+import type {
+  Hotspot,
+  Annotation,
+  Mask,
+  Step,
+  NormalizedCoordinate,
+  UUID,
+} from '@/lib/types';
 import { CanvasProvider, useCanvasContext } from './canvas-context';
 import { CanvasToolbar } from './canvas-toolbar';
 import { useCanvasDrawing } from './canvas-drawing';
@@ -18,15 +25,30 @@ interface CanvasEditorProps {
   className?: string;
 }
 
+const clampNormalized = (value: number): NormalizedCoordinate =>
+  Math.max(0, Math.min(1, value)) as NormalizedCoordinate;
+
+const generateId = (prefix: string): UUID => {
+  if (
+    typeof globalThis.crypto !== 'undefined' &&
+    typeof globalThis.crypto.randomUUID === 'function'
+  ) {
+    return `${prefix}-${globalThis.crypto.randomUUID()}` as UUID;
+  }
+
+  const fallback = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}-${fallback}` as UUID;
+};
+
 function CanvasEditorContent({
   step,
   width = 800,
   height = 600,
   className,
 }: CanvasEditorProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const imageRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const [imageLoaded, setImageLoaded] = useState(false);
 
   const { canvasState, setCanvasState, editorMode, setEditorMode, showGrid } =
@@ -46,14 +68,10 @@ function CanvasEditorContent({
 
   const { drawGrid, drawHotspot, drawAnnotation, drawMask } =
     useCanvasDrawing();
-  const { getCanvasCoordinates, handleZoom, resetViewport } = useCanvasViewport(
-    {
-      canvasRef,
-      canvasState,
-      width,
-      height,
-    }
-  );
+  const { getCanvasCoordinates, handleZoom, resetViewport } = useCanvasViewport({
+    canvasRef,
+    canvasState,
+  });
 
   // 描画をデバウンス
   const debouncedDraw = useDebounce(drawCanvas, 16); // 60fps
@@ -126,40 +144,62 @@ function CanvasEditorContent({
           // 要素選択ロジック（実装省略）
           break;
 
-        case 'hotspot-rect':
+        case 'hotspot-rect': {
+          const hotspotId = generateId('hotspot');
           const rectHotspot: Hotspot = {
-            id: `hotspot-${Date.now()}` as any,
+            id: hotspotId,
             shape: 'rect',
             x: coords.x,
             y: coords.y,
-            w: 0 as any,
-            h: 0 as any,
+            w: 0 as NormalizedCoordinate,
+            h: 0 as NormalizedCoordinate,
           };
           addHotspot(step.id, rectHotspot);
           setCanvasState((prev) => ({
             ...prev,
-            selectedElement: { type: 'hotspot', id: rectHotspot.id },
+            selectedElement: { type: 'hotspot', id: hotspotId },
           }));
           break;
+        }
 
-        case 'hotspot-circle':
+        case 'hotspot-circle': {
+          const hotspotId = generateId('hotspot');
           const circleHotspot: Hotspot = {
-            id: `hotspot-${Date.now()}` as any,
+            id: hotspotId,
             shape: 'circle',
             x: coords.x,
             y: coords.y,
-            r: 0 as any,
+            r: 0 as NormalizedCoordinate,
           };
           addHotspot(step.id, circleHotspot);
           setCanvasState((prev) => ({
             ...prev,
-            selectedElement: { type: 'hotspot', id: circleHotspot.id },
+            selectedElement: { type: 'hotspot', id: hotspotId },
           }));
           break;
+        }
 
-        case 'annotation':
+        case 'hotspot-free': {
+          const hotspotId = generateId('hotspot');
+          const freeHotspot: Hotspot = {
+            id: hotspotId,
+            shape: 'free',
+            x: coords.x,
+            y: coords.y,
+            points: [{ x: coords.x, y: coords.y }] as const,
+          };
+          addHotspot(step.id, freeHotspot);
+          setCanvasState((prev) => ({
+            ...prev,
+            selectedElement: { type: 'hotspot', id: hotspotId },
+          }));
+          break;
+        }
+
+        case 'annotation': {
+          const annotationId = generateId('annotation');
           const annotation: Annotation = {
-            id: `annotation-${Date.now()}` as any,
+            id: annotationId,
             text: '新しい注釈',
             x: coords.x,
             y: coords.y,
@@ -167,25 +207,29 @@ function CanvasEditorContent({
           addAnnotation(step.id, annotation);
           setCanvasState((prev) => ({
             ...prev,
-            selectedElement: { type: 'annotation', id: annotation.id },
+            selectedElement: { type: 'annotation', id: annotationId },
           }));
           break;
+        }
 
-        case 'mask':
+        case 'mask': {
+          const maskId = generateId('mask');
           const mask: Mask = {
-            id: `mask-${Date.now()}` as any,
+            id: maskId,
+            shape: 'rect',
             x: coords.x,
             y: coords.y,
-            w: 0 as any,
-            h: 0 as any,
-            blur: 50,
+            w: 0 as NormalizedCoordinate,
+            h: 0 as NormalizedCoordinate,
+            blurIntensity: 50,
           };
           addMask(step.id, mask);
           setCanvasState((prev) => ({
             ...prev,
-            selectedElement: { type: 'mask', id: mask.id },
+            selectedElement: { type: 'mask', id: maskId },
           }));
           break;
+        }
       }
     },
     [
@@ -221,26 +265,28 @@ function CanvasEditorContent({
 
           if (hotspot.shape === 'rect') {
             updateHotspot(step.id, selectedElement.id, {
-              w: Math.abs(coords.x - startCoords.x) as any,
-              h: Math.abs(coords.y - startCoords.y) as any,
-              x: Math.min(startCoords.x, coords.x),
-              y: Math.min(startCoords.y, coords.y),
+              w: clampNormalized(Math.abs(coords.x - startCoords.x)),
+              h: clampNormalized(Math.abs(coords.y - startCoords.y)),
+              x: clampNormalized(Math.min(startCoords.x, coords.x)),
+              y: clampNormalized(Math.min(startCoords.y, coords.y)),
             });
           } else if (hotspot.shape === 'circle') {
-            const distance = Math.sqrt(
-              Math.pow(coords.x - startCoords.x, 2) +
-                Math.pow(coords.y - startCoords.y, 2)
+            const distance = Math.hypot(
+              coords.x - startCoords.x,
+              coords.y - startCoords.y
             );
-            updateHotspot(step.id, selectedElement.id, { r: distance as any });
+            updateHotspot(step.id, selectedElement.id, {
+              r: clampNormalized(distance),
+            });
           }
           break;
 
         case 'mask':
           updateMask(step.id, selectedElement.id, {
-            w: Math.abs(coords.x - startCoords.x) as any,
-            h: Math.abs(coords.y - startCoords.y) as any,
-            x: Math.min(startCoords.x, coords.x),
-            y: Math.min(startCoords.y, coords.y),
+            w: clampNormalized(Math.abs(coords.x - startCoords.x)),
+            h: clampNormalized(Math.abs(coords.y - startCoords.y)),
+            x: clampNormalized(Math.min(startCoords.x, coords.x)),
+            y: clampNormalized(Math.min(startCoords.y, coords.y)),
           });
           break;
       }

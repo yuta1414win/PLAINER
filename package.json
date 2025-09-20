@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "postinstall": "node scripts/fix-next-dist.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

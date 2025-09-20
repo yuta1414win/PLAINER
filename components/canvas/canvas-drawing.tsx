@@ -66,48 +66,49 @@ export function useCanvasDrawing() {
       ctx.lineWidth = 2 / scale;
 
       switch (hotspot.shape) {
-        case 'rect':
-          if ('w' in hotspot && 'h' in hotspot && hotspot.w && hotspot.h) {
-            const w = (hotspot.w * canvas.width) / scale;
-            const h = (hotspot.h * canvas.height) / scale;
-            ctx.fillRect(x, y, w, h);
-            ctx.strokeRect(x, y, w, h);
-          }
+        case 'rect': {
+          const widthNorm = 'w' in hotspot ? hotspot.w ?? 0 : 0;
+          const heightNorm = 'h' in hotspot ? hotspot.h ?? 0 : 0;
+          const w = (widthNorm * canvas.width) / scale;
+          const h = (heightNorm * canvas.height) / scale;
+          ctx.fillRect(x, y, w, h);
+          ctx.strokeRect(x, y, w, h);
           break;
+        }
 
-        case 'circle':
-          if ('r' in hotspot && hotspot.r) {
-            const r =
-              (hotspot.r * Math.min(canvas.width, canvas.height)) / scale;
-            ctx.beginPath();
-            ctx.arc(x, y, r, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.stroke();
-          }
+        case 'circle': {
+          const radiusNorm = 'r' in hotspot ? hotspot.r ?? 0 : 0;
+          const r = (radiusNorm * Math.min(canvas.width, canvas.height)) / scale;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.stroke();
           break;
+        }
 
-        case 'free':
-          if (
-            'points' in hotspot &&
-            hotspot.points &&
-            hotspot.points.length > 0
-          ) {
-            ctx.beginPath();
-            ctx.moveTo(
-              (hotspot.points[0].x * canvas.width) / scale,
-              (hotspot.points[0].y * canvas.height) / scale
+        case 'free': {
+          const points = 'points' in hotspot && hotspot.points
+            ? hotspot.points
+            : [];
+          if (points.length === 0) break;
+
+          ctx.beginPath();
+          const [firstPoint, ...rest] = points;
+          ctx.moveTo(
+            (firstPoint.x * canvas.width) / scale,
+            (firstPoint.y * canvas.height) / scale
+          );
+          rest.forEach((point) => {
+            ctx.lineTo(
+              (point.x * canvas.width) / scale,
+              (point.y * canvas.height) / scale
             );
-            hotspot.points.slice(1).forEach((point) => {
-              ctx.lineTo(
-                (point.x * canvas.width) / scale,
-                (point.y * canvas.height) / scale
-              );
-            });
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-          }
+          });
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
           break;
+        }
       }
 
       ctx.restore();
@@ -187,7 +188,7 @@ export function useCanvasDrawing() {
       // マスク領域（ぼかし効果の代用として半透明矩形）
       ctx.fillStyle = isSelected
         ? 'rgba(59, 130, 246, 0.4)'
-        : `rgba(0, 0, 0, ${mask.blur / 200})`;
+        : `rgba(0, 0, 0, ${mask.blurIntensity / 200})`;
       ctx.fillRect(x, y, w, h);
 
       // 枠線

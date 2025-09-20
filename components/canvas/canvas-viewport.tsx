@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, type MutableRefObject } from 'react';
 import type { NormalizedCoordinate } from '@/lib/types';
 import type { CanvasState, CanvasCoordinates } from './types';
 
 interface CanvasViewportProps {
-  canvasRef: React.RefObject<HTMLCanvasElement>;
+  canvasRef: MutableRefObject<HTMLCanvasElement | null>;
   canvasState: CanvasState;
 }
 

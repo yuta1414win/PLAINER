@@ -12,6 +12,8 @@ import {
   handleStreamingResponse,
   getClientIdFromRequest,
   RATE_LIMIT_CONFIG,
+  buildCorsHeaders,
+  withRateLimitHeaders,
 } from './route-helpers';
 
 interface APIResponse {
@@ -23,33 +25,76 @@ interface APIResponse {
 
 export async function POST(request: NextRequest): Promise<Response> {
   const requestId = crypto.randomUUID();
+  const origin = request.headers.get('origin');
+  const corsHeaders = buildCorsHeaders(origin);
+
+  if (!corsHeaders) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Origin not allowed.',
+        requestId,
+      },
+      {
+        status: 403,
+        headers: {
+          Vary: 'Origin',
+        },
+      }
+    );
+  }
+
+  const clientId = getClientIdFromRequest(request);
+  const rateLimitStatus = checkRateLimit(clientId);
+  const baseHeaders = withRateLimitHeaders(
+    {
+      ...corsHeaders,
+      'X-Request-ID': requestId,
+    },
+    rateLimitStatus
+  );
+
+  if (!rateLimitStatus.allowed) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Rate limit exceeded. Please try again later.',
+        requestId,
+      },
+      {
+        status: 429,
+        headers: {
+          ...baseHeaders,
+          ...(rateLimitStatus.retryAfterSeconds
+            ? { 'Retry-After': String(rateLimitStatus.retryAfterSeconds) }
+            : {}),
+        },
+      }
+    );
+  }
 
   try {
     // Parse request body
     const body: APIRequest = await request.json();
 
-    // Rate limiting
-    const clientId = getClientIdFromRequest(request);
-    if (!checkRateLimit(clientId)) {
-      return NextResponse.json(
+    const createErrorResponse = (status: number, message: string) =>
+      NextResponse.json(
         {
           success: false,
-          error: 'Rate limit exceeded. Please try again later.',
+          error: message,
           requestId,
         },
-        { status: 429 }
+        {
+          status,
+          headers: baseHeaders,
+        }
       );
-    }
 
     // Validate request structure
     if (!body.type || !body.data) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Invalid request format. Missing type or data.',
-          requestId,
-        },
-        { status: 400 }
+      return createErrorResponse(
+        400,
+        'Invalid request format. Missing type or data.'
       );
     }
 
@@ -60,10 +105,10 @@ export async function POST(request: NextRequest): Promise<Response> {
 
       return new Response(stream, {
         headers: {
+          ...baseHeaders,
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
           Connection: 'keep-alive',
-          'X-Request-ID': requestId,
         },
       });
     }
@@ -74,55 +119,29 @@ export async function POST(request: NextRequest): Promise<Response> {
     switch (body.type) {
       case 'optimization':
         if (!validateOptimizationRequest(body.data)) {
-          return NextResponse.json(
-            {
-              success: false,
-              error: 'Invalid optimization request format.',
-              requestId,
-            },
-            { status: 400 }
-          );
+          return createErrorResponse(400, 'Invalid optimization request format.');
         }
         result = await handleOptimization(body.data);
         break;
 
       case 'content':
         if (!validateContentRequest(body.data)) {
-          return NextResponse.json(
-            {
-              success: false,
-              error: 'Invalid content request format.',
-              requestId,
-            },
-            { status: 400 }
-          );
+          return createErrorResponse(400, 'Invalid content request format.');
         }
         result = await handleContentGeneration(body.data);
         break;
 
       case 'flow':
         if (!validateFlowRequest(body.data)) {
-          return NextResponse.json(
-            {
-              success: false,
-              error: 'Invalid flow request format.',
-              requestId,
-            },
-            { status: 400 }
-          );
+          return createErrorResponse(400, 'Invalid flow request format.');
         }
         result = await handleFlowAnalysis(body.data);
         break;
 
       default:
-        return NextResponse.json(
-          {
-            success: false,
-            error:
-              'Invalid request type. Must be optimization, content, or flow.',
-            requestId,
-          },
-          { status: 400 }
+        return createErrorResponse(
+          400,
+          'Invalid request type. Must be optimization, content, or flow.'
         );
     }
 
@@ -132,9 +151,25 @@ export async function POST(request: NextRequest): Promise<Response> {
       requestId,
     };
 
-    return NextResponse.json(response);
+    return NextResponse.json(response, { headers: baseHeaders });
   } catch (error) {
     console.error('API error:', error);
+
+    if (error instanceof SyntaxError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Malformed JSON payload.',
+          requestId,
+        },
+        {
+          status: 400,
+          headers: {
+            ...baseHeaders,
+          },
+        }
+      );
+    }
 
     const errorResponse: APIResponse = {
       success: false,
@@ -142,12 +177,19 @@ export async function POST(request: NextRequest): Promise<Response> {
       requestId,
     };
 
-    return NextResponse.json(errorResponse, { status: 500 });
+    return NextResponse.json(errorResponse, {
+      status: 500,
+      headers: {
+        ...baseHeaders,
+      },
+    });
   }
 }
 
 // Health check endpoint
-export async function GET(): Promise<Response> {
+export async function GET(request: NextRequest): Promise<Response> {
+  const corsHeaders = buildCorsHeaders(request.headers.get('origin'));
+
   try {
     // Basic health check - verify AI services can be initialized
     const healthCheck = {
@@ -164,27 +206,44 @@ export async function GET(): Promise<Response> {
       },
     };
 
-    return NextResponse.json(healthCheck);
+    return NextResponse.json(healthCheck, {
+      headers: {
+        ...(corsHeaders ?? {}),
+      },
+    });
   } catch (error) {
     return NextResponse.json(
       {
         status: 'unhealthy',
         error: error instanceof Error ? error.message : 'Unknown error',
       },
-      { status: 500 }
+      {
+        status: 500,
+        headers: {
+          ...(corsHeaders ?? {}),
+        },
+      }
     );
   }
 }
 
 // Options for CORS
-export async function OPTIONS(): Promise<Response> {
+export async function OPTIONS(request: NextRequest): Promise<Response> {
+  const corsHeaders = buildCorsHeaders(request.headers.get('origin'), {
+    isPreflight: true,
+  });
+
+  if (!corsHeaders) {
+    return new Response(null, {
+      status: 403,
+      headers: {
+        Vary: 'Origin',
+      },
+    });
+  }
+
   return new Response(null, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers':
-        'Content-Type, Authorization, X-Forwarded-For',
-    },
+    status: 204,
+    headers: corsHeaders,
   });
 }

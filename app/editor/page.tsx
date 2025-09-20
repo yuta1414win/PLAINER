@@ -18,6 +18,9 @@ import {
   Download,
   Share,
   FolderOpen,
+  HelpCircle,
+  BookOpen,
+  MessageCircle,
 } from 'lucide-react';
 import { ImageUpload, type ProcessedImage } from '@/components/image-upload';
 import { CanvasEditorModern } from '@/components/canvas-editor-modern';
@@ -47,6 +50,12 @@ import { KeyboardFocusHelp } from '@/components/keyboard-focus-help';
 import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
 import { ProjectManager } from '@/components/project-manager';
 import { AutoSaveIndicator } from '@/components/auto-save-indicator';
+import {
+  OnboardingTour,
+  ONBOARDING_STORAGE_KEY,
+} from '@/components/onboarding/onboarding-tour';
+import { GlossaryPanel } from '@/components/onboarding/glossary-panel';
+import { OnboardingFeedbackDialog } from '@/components/onboarding/feedback-dialog';
 import { useEditorStore, defaultTheme } from '@/lib/store';
 import { useKeyboardFocus } from '@/hooks/use-keyboard-focus';
 import {
@@ -105,6 +114,16 @@ export default function EditorPage() {
   const [isMobilePropertiesOpen, setIsMobilePropertiesOpen] = useState(false);
   const [isShortcutsDialogOpen, setIsShortcutsDialogOpen] = useState(false);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [isGlossaryOpen, setIsGlossaryOpen] = useState(false);
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] =
+    useState(false);
+  const [isFeedbackDialogOpen, setIsFeedbackDialogOpen] = useState(false);
+  const [glossarySource, setGlossarySource] =
+    useState<'header' | 'onboarding'>('header');
+  const [onboardingLaunchSource, setOnboardingLaunchSource] =
+    useState<'auto' | 'manual'>('auto');
+  const onboardingCompletedRef = useRef(false);
 
   const isMobile = useIsMobile();
   const isTablet = useIsTablet();
@@ -113,6 +132,34 @@ export default function EditorPage() {
   const [userName, setUserName] = useState<string>('ゲスト');
   const [userId, setUserId] = useState<string>('');
   const [roomId, setRoomId] = useState<string>('');
+
+  const persistOnboardingCompletion = useCallback(() => {
+    if (onboardingCompletedRef.current) return;
+    onboardingCompletedRef.current = true;
+    setHasCompletedOnboarding(true);
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(ONBOARDING_STORAGE_KEY, 'true');
+      }
+    } catch (error) {
+      console.warn('Failed to persist onboarding preference', error);
+    }
+  }, []);
+
+  const handleOnboardingCompleted = useCallback(() => {
+    persistOnboardingCompletion();
+    setIsOnboardingOpen(false);
+  }, [persistOnboardingCompletion]);
+
+  const handleOnboardingOpenChange = useCallback(
+    (open: boolean) => {
+      setIsOnboardingOpen(open);
+      if (!open && !onboardingCompletedRef.current) {
+        persistOnboardingCompletion();
+      }
+    },
+    [persistOnboardingCompletion]
+  );
 
   const collaboration = useCollaboration(
     {
@@ -130,6 +177,24 @@ export default function EditorPage() {
       },
     }
   );
+
+  // 初回オンボーディング状態の確認
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const stored = window.localStorage.getItem(ONBOARDING_STORAGE_KEY);
+        const alreadyCompleted = stored === 'true';
+        onboardingCompletedRef.current = alreadyCompleted;
+        setHasCompletedOnboarding(alreadyCompleted);
+        if (!alreadyCompleted) {
+          setOnboardingLaunchSource('auto');
+          setIsOnboardingOpen(true);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to read onboarding preference', error);
+    }
+  }, []);
 
   // ユーザーID/名前の初期化
   useEffect(() => {
@@ -374,6 +439,20 @@ export default function EditorPage() {
     },
     [currentStep, duplicateMask]
   );
+
+  const openOnboardingGuide = useCallback(() => {
+    setOnboardingLaunchSource('manual');
+    setIsOnboardingOpen(true);
+  }, []);
+
+  const openGlossaryPanel = useCallback(() => {
+    setGlossarySource('header');
+    setIsGlossaryOpen(true);
+  }, []);
+
+  const openFeedbackDialog = useCallback(() => {
+    setIsFeedbackDialogOpen(true);
+  }, []);
 
   // --- プロパティ入力の同期（テキストフィールドを追跡） ---
   const projectNameRef = useRef<HTMLInputElement | null>(null);
@@ -717,6 +796,42 @@ export default function EditorPage() {
               >
                 <Settings className="w-4 h-4" />
                 設定
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="relative flex items-center gap-2"
+                onClick={openOnboardingGuide}
+              >
+                <HelpCircle className="w-4 h-4" />
+                初心者ガイド
+                {!hasCompletedOnboarding ? (
+                  <span
+                    className="absolute -right-1 -top-1 inline-flex h-2 w-2 rounded-full bg-primary"
+                    aria-hidden="true"
+                  />
+                ) : null}
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-2"
+                onClick={openGlossaryPanel}
+              >
+                <BookOpen className="w-4 h-4" />
+                用語集
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-2"
+                onClick={openFeedbackDialog}
+              >
+                <MessageCircle className="w-4 h-4" />
+                フィードバック
               </Button>
 
               <AutoSaveIndicator showDetails={true} onManualSave={saveNow} />
@@ -1381,6 +1496,25 @@ export default function EditorPage() {
           setProject(project);
           setActiveTab('edit');
         }}
+      />
+
+      <OnboardingTour
+        open={isOnboardingOpen}
+        onOpenChange={handleOnboardingOpenChange}
+        onComplete={handleOnboardingCompleted}
+        onRequestFeedback={openFeedbackDialog}
+        launchSource={onboardingLaunchSource}
+      />
+
+      <GlossaryPanel
+        open={isGlossaryOpen}
+        onOpenChange={setIsGlossaryOpen}
+        source={glossarySource}
+      />
+
+      <OnboardingFeedbackDialog
+        open={isFeedbackDialogOpen}
+        onOpenChange={setIsFeedbackDialogOpen}
       />
     </div>
   );

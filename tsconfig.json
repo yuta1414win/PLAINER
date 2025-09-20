@@ -29,7 +29,7 @@
     },
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
-    "exactOptionalPropertyTypes": true,
+    "exactOptionalPropertyTypes": false,
     "target": "ES2017"
   },
   "include": [

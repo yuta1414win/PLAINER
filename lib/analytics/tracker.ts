@@ -18,7 +18,16 @@ export type EventType =
   | 'video_complete'
   | 'session_start'
   | 'session_end'
-  | 'error';
+  | 'error'
+  | 'onboarding_start'
+  | 'onboarding_step'
+  | 'onboarding_complete'
+  | 'onboarding_skip'
+  | 'onboarding_abandon'
+  | 'onboarding_glossary_open'
+  | 'onboarding_glossary_search'
+  | 'onboarding_feedback_open'
+  | 'onboarding_feedback_submit';
 
 export interface EventData {
   stepId?: string;
@@ -32,6 +41,14 @@ export interface EventData {
   screenResolution?: string;
   referrer?: string;
   language?: string;
+  totalSteps?: number;
+  onboardingSource?: string;
+  onboardingSessionId?: string;
+  stepTitle?: string;
+  query?: string;
+  resultsCount?: number;
+  rating?: number;
+  comment?: string;
 }
 
 export interface AnalyticsSession {
@@ -63,6 +80,7 @@ export interface AnalyticsMetrics {
   hotspotEngagement: number;
   stepMetrics: StepMetric[];
   timeSeriesData: TimeSeriesData[];
+  onboardingMetrics?: OnboardingMetricsSummary;
 }
 
 export interface StepMetric {
@@ -83,10 +101,44 @@ export interface TimeSeriesData {
   averageDuration: number;
 }
 
+export interface OnboardingMetricsSummary {
+  totalSessions: number;
+  completedSessions: number;
+  completionRate: number;
+  skipCount: number;
+  abandonCount: number;
+  averageDurationMs: number;
+  sourceBreakdown: Record<string, number>;
+  stepProgression: Array<{
+    stepIndex: number;
+    views: number;
+    stepTitle?: string;
+  }>;
+  glossary: {
+    openCount: number;
+    openBySource: Record<string, number>;
+    searchCount: number;
+    topQueries: Array<{
+      query: string;
+      count: number;
+      averageResults: number;
+    }>;
+  };
+  feedback: {
+    submissions: number;
+    averageRating: number;
+    recentComments: Array<{
+      rating: number;
+      comment: string;
+      submittedAt: string;
+    }>;
+  };
+}
+
 import AnalyticsSettings from '@/lib/analytics/settings';
 
 export class AnalyticsTracker {
-  private static instance: AnalyticsTracker;
+  private static instances: Map<string, AnalyticsTracker> = new Map();
   private sessionId: string;
   private userId?: string;
   private projectId: string;
@@ -140,10 +192,15 @@ export class AnalyticsTracker {
   }
 
   static getInstance(projectId: string, userId?: string): AnalyticsTracker {
-    if (!AnalyticsTracker.instance) {
-      AnalyticsTracker.instance = new AnalyticsTracker(projectId, userId);
+    const key = `${projectId}::${userId ?? 'anonymous'}`;
+    const existing = AnalyticsTracker.instances.get(key);
+    if (existing) {
+      return existing;
     }
-    return AnalyticsTracker.instance;
+
+    const tracker = new AnalyticsTracker(projectId, userId);
+    AnalyticsTracker.instances.set(key, tracker);
+    return tracker;
   }
 
   // セッション初期化

@@ -89,7 +89,9 @@ export function checkRateLimit(clientId: string): RateLimitStatus {
   };
 }
 
-export function validateOptimizationRequest(data: unknown): data is OptimizationRequest {
+export function validateOptimizationRequest(
+  data: unknown
+): data is OptimizationRequest {
   if (!data || typeof data !== 'object') return false;
   const request = data as Partial<OptimizationRequest>;
   if (typeof request.type !== 'string') return false;
@@ -97,18 +99,23 @@ export function validateOptimizationRequest(data: unknown): data is Optimization
   return request.steps.every((step) => {
     if (!step || typeof step !== 'object') return false;
     const candidate = step as { id?: unknown; title?: unknown };
-    return typeof candidate.id === 'string' && typeof candidate.title === 'string';
+    return (
+      typeof candidate.id === 'string' && typeof candidate.title === 'string'
+    );
   });
 }
 
 export function validateContentRequest(data: unknown): data is ContentRequest {
   if (!data || typeof data !== 'object') return false;
   const request = data as Partial<ContentRequest>;
-  if (typeof request.type !== 'string' || typeof request.target !== 'string') return false;
+  if (typeof request.type !== 'string' || typeof request.target !== 'string')
+    return false;
   return typeof request.context === 'object' && request.context !== null;
 }
 
-export function validateFlowRequest(data: unknown): data is FlowAnalysisRequest {
+export function validateFlowRequest(
+  data: unknown
+): data is FlowAnalysisRequest {
   if (!data || typeof data !== 'object') return false;
   const request = data as Partial<FlowAnalysisRequest>;
   return Array.isArray(request.steps) && request.steps.length > 0;
@@ -142,31 +149,65 @@ export async function handleStreamingResponse(
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'status', message: 'Starting optimization...', progress: 0 })}\n\n`));
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ type: 'status', message: 'Starting optimization...', progress: 0 })}\n\n`
+          )
+        );
         let result: AIResponsePayload | undefined;
         switch (request.type) {
           case 'optimization':
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'status', message: 'Analyzing steps...', progress: 25 })}\n\n`));
-            result = await handleOptimization(request.data as OptimizationRequest);
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'status', message: 'Generating suggestions...', progress: 75 })}\n\n`));
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: 'status', message: 'Analyzing steps...', progress: 25 })}\n\n`
+              )
+            );
+            result = await handleOptimization(
+              request.data as OptimizationRequest
+            );
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: 'status', message: 'Generating suggestions...', progress: 75 })}\n\n`
+              )
+            );
             break;
           case 'content':
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'status', message: 'Generating content...', progress: 50 })}\n\n`));
-            result = await handleContentGeneration(request.data as ContentRequest);
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: 'status', message: 'Generating content...', progress: 50 })}\n\n`
+              )
+            );
+            result = await handleContentGeneration(
+              request.data as ContentRequest
+            );
             break;
           case 'flow':
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'status', message: 'Analyzing flow patterns...', progress: 50 })}\n\n`));
-            result = await handleFlowAnalysis(request.data as FlowAnalysisRequest);
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: 'status', message: 'Analyzing flow patterns...', progress: 50 })}\n\n`
+              )
+            );
+            result = await handleFlowAnalysis(
+              request.data as FlowAnalysisRequest
+            );
             break;
           default:
             throw new Error('Invalid request type');
         }
         if (!result) throw new Error('AI handler returned empty result');
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'result', data: result, progress: 100 })}\n\n`));
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ type: 'result', data: result, progress: 100 })}\n\n`
+          )
+        );
         controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         controller.close();
       } catch (error) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error instanceof Error ? error.message : 'Unknown error' })}\n\n`));
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ type: 'error', error: error instanceof Error ? error.message : 'Unknown error' })}\n\n`
+          )
+        );
         controller.close();
       }
     },
@@ -176,7 +217,10 @@ export async function handleStreamingResponse(
 export function getClientIdFromRequest(request: NextRequest): string {
   const headerFirst = (value: string | null) => {
     if (!value) return undefined;
-    const parts = value.split(',').map((part) => part.trim()).filter(Boolean);
+    const parts = value
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
     return parts[0];
   };
 
@@ -200,7 +244,9 @@ function getAllowedOrigins(): string[] {
   return parsed.length > 0 ? parsed : [DEFAULT_ALLOWED_ORIGIN];
 }
 
-function resolveAllowedOrigin(origin: string | null): { value: string; vary: boolean } | null {
+function resolveAllowedOrigin(
+  origin: string | null
+): { value: string; vary: boolean } | null {
   const allowedOrigins = getAllowedOrigins();
   const allowsAny = allowedOrigins.includes('*');
 

@@ -1,8 +1,8 @@
-// キャンバスコンポーネント エクスポート
+// キャンバス関連エクスポート
 export { CanvasEditor } from './canvas-editor';
 export { CanvasToolbar } from './canvas-toolbar';
-export { CanvasDrawing } from './canvas-drawing';
-export { CanvasViewport } from './canvas-viewport';
+export { useCanvasDrawing } from './canvas-drawing';
+export { useCanvasViewport } from './canvas-viewport';
 export { CanvasContext, useCanvasContext } from './canvas-context';
 
 // 型定義
