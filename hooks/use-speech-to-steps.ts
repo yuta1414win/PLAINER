@@ -19,6 +19,8 @@ interface RecognitionLike {
   lang: string;
 }
 
+const STEP_MARKER = /(?:^|\s)(?:ステップ\s*\d+[:：]?|step\s*\d+[:：]?)/gi;
+
 export function useSpeechToSteps(lang: 'ja-JP' | 'en-US' = 'ja-JP') {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
@@ -28,55 +30,70 @@ export function useSpeechToSteps(lang: 'ja-JP' | 'en-US' = 'ja-JP') {
 
   useEffect(() => {
     const w = window as any;
-    const Ctor =
-      w.SpeechRecognition || w.webkitSpeechRecognition || w.mozSpeechRecognition;
-    if (Ctor) setSupported(true);
+    const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition || w.mozSpeechRecognition;
+    setSupported(Boolean(Ctor));
+
     return () => {
       recRef.current?.abort?.();
       recRef.current = null;
     };
   }, []);
 
-  const parse = useCallback((txt: string) => {
-    const out: SpeechStepDraft[] = [];
-    const norm = txt.replace(/、/g, '、 ').replace(/。/g, '。 ');
-    const parts = norm
-      .split(/(?:^|\s)(?:ステップ\s*\d+[:：]?|step\s*\d+[:：]?)/i)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (parts.length > 1) {
-      for (const p of parts) {
-        const [firstLine, ...rest] = p.split(/\s+/);
-        const title = firstLine.length > 3 ? firstLine : p.slice(0, 20);
-        out.push({ title, description: rest.join(' ').slice(0, 140) });
+  const parse = useCallback((raw: string) => {
+    const normalized = raw.replace(/\s+/g, ' ').trim();
+    if (!normalized) return [];
+
+    const segments = normalized
+      .split(STEP_MARKER)
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0);
+
+    const source = segments.length > 1 ? segments : [normalized];
+
+    return source.slice(0, 10).map((segment, index) => {
+      const cleaned = segment.replace(/^[\-・\s]+/, '');
+      if (!cleaned) {
+        return { title: `音声ステップ ${index + 1}` } satisfies SpeechStepDraft;
       }
-    } else if (txt.trim()) {
-      // Fallback: one step
-      out.push({ title: txt.trim().slice(0, 50) });
-    }
-    return out.slice(0, 10);
+
+      const words = cleaned.split(/\s+/);
+      const [firstWord = ''] = words;
+      const titleCandidate = firstWord.length >= 3 ? firstWord : cleaned.slice(0, 30);
+      const description = words.slice(1).join(' ').trim();
+
+      return {
+        title: titleCandidate || `音声ステップ ${index + 1}`,
+        ...(description ? { description: description.slice(0, 140) } : {}),
+      } satisfies SpeechStepDraft;
+    });
   }, []);
 
   const start = useCallback(() => {
     if (!supported || listening) return;
+
     const w = window as any;
-    const Ctor =
-      w.SpeechRecognition || w.webkitSpeechRecognition || w.mozSpeechRecognition;
+    const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition || w.mozSpeechRecognition;
     if (!Ctor) return;
+
     const rec: RecognitionLike = new Ctor();
     rec.lang = lang;
     rec.interimResults = true;
     rec.continuous = true;
-    rec.onresult = (e: any) => {
-      let t = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        t += e.results[i][0].transcript;
-      }
-      setTranscript((prev) => (prev + ' ' + t).trim());
-      setSteps(parse((prev + ' ' + t).trim()));
+
+    rec.onresult = (event: any) => {
+      const results: string[] = Array.from(event.results || [], (result: any) => {
+        const transcriptValue = result?.[0]?.transcript ?? '';
+        return typeof transcriptValue === 'string' ? transcriptValue : '';
+      });
+
+      const combined = results.join(' ').replace(/\s+/g, ' ').trim();
+      setTranscript(combined);
+      setSteps(parse(combined));
     };
+
     rec.onerror = () => setListening(false);
     rec.onend = () => setListening(false);
+
     recRef.current = rec;
     rec.start();
     setListening(true);
@@ -88,8 +105,10 @@ export function useSpeechToSteps(lang: 'ja-JP' | 'en-US' = 'ja-JP') {
   }, []);
 
   const reset = useCallback(() => {
+    recRef.current?.abort?.();
     setTranscript('');
     setSteps([]);
+    setListening(false);
   }, []);
 
   return { supported, listening, transcript, steps, start, stop, reset };

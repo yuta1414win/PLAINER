@@ -53,7 +53,13 @@ interface AnalyticsDashboardProps {
 }
 
 type DateRange = '7d' | '30d' | '90d' | 'all';
-type ChartType = 'overview' | 'steps' | 'engagement' | 'performance' | 'insights';
+type ChartType =
+  | 'overview'
+  | 'steps'
+  | 'engagement'
+  | 'performance'
+  | 'insights'
+  | 'onboarding';
 
 const COLORS = [
   '#3B82F6', // blue
@@ -87,6 +93,17 @@ const getDateRange = (
   }
 
   return { start, end };
+};
+
+const formatDuration = (ms: number): string => {
+  if (!Number.isFinite(ms) || ms <= 0) return '0秒';
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) {
+    return `${seconds}秒`;
+  }
+  return `${minutes}分${seconds}秒`;
 };
 
 export function AnalyticsDashboard({
@@ -170,6 +187,25 @@ export function AnalyticsDashboard({
     }));
   }, [metrics]);
 
+  const onboardingStepData = useMemo(() => {
+    if (!metrics?.onboardingMetrics) return [];
+    return metrics.onboardingMetrics.stepProgression.map((step) => ({
+      name: `Step ${step.stepIndex + 1}`,
+      views: step.views,
+      stepTitle: step.stepTitle,
+    }));
+  }, [metrics]);
+
+  const onboardingSourceData = useMemo(() => {
+    if (!metrics?.onboardingMetrics) return [];
+    return Object.entries(metrics.onboardingMetrics.sourceBreakdown).map(
+      ([source, count]) => ({
+        name: source === 'auto' ? '自動起動' : source === 'manual' ? '手動' : source,
+        value: count,
+      })
+    );
+  }, [metrics]);
+
   // CSVエクスポート
   const exportToCSV = () => {
     if (!metrics) return;
@@ -218,6 +254,8 @@ export function AnalyticsDashboard({
       </div>
     );
   }
+
+  const onboardingMetrics = metrics.onboardingMetrics;
 
   return (
     <div className={cn('space-y-6', className)}>
@@ -350,11 +388,14 @@ export function AnalyticsDashboard({
       >
         <TabsList>
           <TabsTrigger value="overview">概要</TabsTrigger>
-          <TabsTrigger value="steps">ステップ分析</TabsTrigger>
-          <TabsTrigger value="engagement">エンゲージメント</TabsTrigger>
-          <TabsTrigger value="performance">パフォーマンス</TabsTrigger>
-          <TabsTrigger value="insights">インサイト</TabsTrigger>
-        </TabsList>
+        <TabsTrigger value="steps">ステップ分析</TabsTrigger>
+        <TabsTrigger value="engagement">エンゲージメント</TabsTrigger>
+        <TabsTrigger value="performance">パフォーマンス</TabsTrigger>
+        <TabsTrigger value="insights">インサイト</TabsTrigger>
+        {onboardingMetrics && (
+          <TabsTrigger value="onboarding">初心者導線</TabsTrigger>
+        )}
+      </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
           {/* 時系列グラフ */}
@@ -585,6 +626,185 @@ export function AnalyticsDashboard({
           </Card>
         </TabsContent>
       </Tabs>
+
+      {activeTab === 'onboarding' && onboardingMetrics && (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>初心者ガイド サマリー</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <p className="text-sm text-gray-500">総セッション</p>
+                  <p className="text-xl font-semibold">
+                    {onboardingMetrics.totalSessions.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    完了 {onboardingMetrics.completedSessions.toLocaleString()} 件
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">完了率</p>
+                  <p className="text-xl font-semibold">
+                    {Math.round(onboardingMetrics.completionRate * 100)}%
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">平均所要時間</p>
+                  <p className="text-xl font-semibold">
+                    {formatDuration(onboardingMetrics.averageDurationMs)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">離脱セッション</p>
+                  <p className="text-xl font-semibold">
+                    {(onboardingMetrics.skipCount + onboardingMetrics.abandonCount).toLocaleString()}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    スキップ {onboardingMetrics.skipCount} / 離脱{' '}
+                    {onboardingMetrics.abandonCount}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>ステップ到達状況</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {onboardingStepData.length === 0 ? (
+                  <div className="text-sm text-gray-500">データがありません。</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={onboardingStepData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip
+                        formatter={(value: number) => `${value} 件`}
+                        labelFormatter={(label: string, payload: any[]) => {
+                          const first = payload?.[0]?.payload as {
+                            stepTitle?: string;
+                          } | undefined;
+                          return first?.stepTitle || label;
+                        }}
+                      />
+                      <Bar dataKey="views" name="閲覧数" fill="#3B82F6">
+                        {onboardingStepData.map((_, index) => (
+                          <Cell
+                            key={`onboarding-step-${index}`}
+                            fill={COLORS[index % COLORS.length]}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>起動チャネル</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {onboardingSourceData.length === 0 ? (
+                  <div className="text-sm text-gray-500">データがありません。</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <PieChart>
+                      <Pie
+                        data={onboardingSourceData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={90}
+                        label={({ name, percent }: { name: string; percent: number }) =>
+                          `${name} ${(percent * 100).toFixed(0)}%`
+                        }
+                      >
+                        {onboardingSourceData.map((_, index) => (
+                          <Cell
+                            key={`onboarding-source-${index}`}
+                            fill={COLORS[index % COLORS.length]}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value: number) => `${value} 件`} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>用語ガイドとフィードバック</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-500">用語ガイド</p>
+                  <p className="text-sm text-gray-600">
+                    開封 {onboardingMetrics.glossary.openCount.toLocaleString()} 件 / 検索{' '}
+                    {onboardingMetrics.glossary.searchCount.toLocaleString()} 件
+                  </p>
+                  {onboardingMetrics.glossary.topQueries.length === 0 ? (
+                    <p className="text-sm text-gray-500">検索クエリの記録はありません。</p>
+                  ) : (
+                    <ul className="space-y-2 text-sm">
+                      {onboardingMetrics.glossary.topQueries.map((query) => (
+                        <li
+                          key={query.query}
+                          className="flex items-center justify-between gap-2"
+                        >
+                          <span className="truncate" title={query.query}>
+                            {query.query}
+                          </span>
+                          <span className="text-gray-500">
+                            {query.count} 件 / 平均 {query.averageResults.toFixed(1)} 件
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-500">フィードバック</p>
+                  <p className="text-sm text-gray-600">
+                    提出 {onboardingMetrics.feedback.submissions.toLocaleString()} 件 / 平均評価{' '}
+                    {onboardingMetrics.feedback.averageRating.toFixed(1)} 点
+                  </p>
+                  {onboardingMetrics.feedback.recentComments.length === 0 ? (
+                    <p className="text-sm text-gray-500">最新コメントはまだありません。</p>
+                  ) : (
+                    <ul className="space-y-2 text-sm">
+                      {onboardingMetrics.feedback.recentComments.map((comment, index) => (
+                        <li key={`${comment.submittedAt}-${index}`} className="rounded-md border border-gray-200 p-3">
+                          <div className="flex items-center justify-between text-xs text-gray-500">
+                            <span>評価 {comment.rating}</span>
+                            <span>{new Date(comment.submittedAt).toLocaleString()}</span>
+                          </div>
+                          <p className="mt-1 text-gray-700 whitespace-pre-line">
+                            {comment.comment}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Insights Tab (outside to keep file manageable) */}
       {activeTab === 'insights' && insights && (

@@ -1,3 +1,5 @@
+import { AnalyticsTracker } from '@/lib/analytics/tracker';
+
 const METRICS_STORAGE_KEY = 'plainer.onboarding.metrics';
 
 export type OnboardingEventType =
@@ -104,6 +106,8 @@ export function recordOnboardingMetric(
   } catch (error) {
     console.warn('Failed to persist onboarding metric', error);
   }
+
+  forwardMetricToAnalytics(enriched);
 }
 
 export function createOnboardingSessionId(): string {
@@ -111,4 +115,143 @@ export function createOnboardingSessionId(): string {
     return crypto.randomUUID();
   }
   return `session-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+}
+
+const ONBOARDING_ANALYTICS_PROJECT_ID = 'plainer:onboarding';
+const ONBOARDING_ANALYTICS_USER_ID = 'beginner-tour';
+
+let onboardingTracker: AnalyticsTracker | null = null;
+let onboardingTrackerInitFailed = false;
+
+function getOnboardingTracker(): AnalyticsTracker | null {
+  if (onboardingTrackerInitFailed || typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    if (!onboardingTracker) {
+      onboardingTracker = AnalyticsTracker.getInstance(
+        ONBOARDING_ANALYTICS_PROJECT_ID,
+        ONBOARDING_ANALYTICS_USER_ID
+      );
+    }
+    return onboardingTracker;
+  } catch (error) {
+    onboardingTrackerInitFailed = true;
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('Failed to initialize onboarding analytics tracker', error);
+    }
+    return null;
+  }
+}
+
+function forwardMetricToAnalytics(event: OnboardingMetricEvent): void {
+  const tracker = getOnboardingTracker();
+  if (!tracker) return;
+
+  const metadata = { recordedAt: event.timestamp };
+
+  switch (event.type) {
+    case 'start':
+      tracker.trackEvent(
+        'onboarding_start',
+        {
+          onboardingSessionId: event.sessionId,
+          totalSteps: event.totalSteps,
+          onboardingSource: event.source,
+        },
+        metadata
+      );
+      break;
+    case 'step':
+      tracker.trackEvent(
+        'onboarding_step',
+        {
+          onboardingSessionId: event.sessionId,
+          stepIndex: event.stepIndex,
+          totalSteps: event.totalSteps,
+          stepTitle: event.stepTitle,
+        },
+        metadata
+      );
+      break;
+    case 'skip':
+      tracker.trackEvent(
+        'onboarding_skip',
+        {
+          onboardingSessionId: event.sessionId,
+          stepIndex: event.stepIndex,
+          totalSteps: event.totalSteps,
+          duration: event.durationMs,
+        },
+        metadata
+      );
+      break;
+    case 'complete':
+      tracker.trackEvent(
+        'onboarding_complete',
+        {
+          onboardingSessionId: event.sessionId,
+          totalSteps: event.totalSteps,
+          duration: event.durationMs,
+        },
+        metadata
+      );
+      break;
+    case 'abandon':
+      tracker.trackEvent(
+        'onboarding_abandon',
+        {
+          onboardingSessionId: event.sessionId,
+          stepIndex: event.stepIndex,
+          totalSteps: event.totalSteps,
+          duration: event.durationMs,
+        },
+        metadata
+      );
+      break;
+    case 'glossary_open':
+      tracker.trackEvent(
+        'onboarding_glossary_open',
+        {
+          onboardingSessionId: event.sessionId,
+          onboardingSource: event.source,
+        },
+        metadata
+      );
+      break;
+    case 'glossary_search':
+      tracker.trackEvent(
+        'onboarding_glossary_search',
+        {
+          onboardingSessionId: event.sessionId,
+          query: event.query,
+          resultsCount: event.results,
+        },
+        metadata
+      );
+      break;
+    case 'feedback_open':
+      tracker.trackEvent(
+        'onboarding_feedback_open',
+        {
+          onboardingSessionId: event.sessionId,
+        },
+        metadata
+      );
+      break;
+    case 'feedback':
+      tracker.trackEvent(
+        'onboarding_feedback_submit',
+        {
+          onboardingSessionId: event.sessionId,
+          rating: event.rating,
+          comment: event.comment,
+        },
+        metadata
+      );
+      break;
+    default:
+      break;
+  }
 }

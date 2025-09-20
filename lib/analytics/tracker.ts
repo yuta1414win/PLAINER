@@ -746,6 +746,7 @@ export class AnalyticsTracker {
 
     // 時系列データ生成
     const timeSeriesData = this.generateTimeSeriesData(events, sessions);
+    const onboardingMetrics = this.calculateOnboardingMetrics(events);
 
     return {
       totalViews: events.filter((e) => e.type === 'page_view').length,
@@ -762,6 +763,175 @@ export class AnalyticsTracker {
         .length,
       stepMetrics: Array.from(stepMetricsMap.values()),
       timeSeriesData,
+      onboardingMetrics,
+    };
+  }
+
+  private calculateOnboardingMetrics(
+    events: AnalyticsEvent[]
+  ): OnboardingMetricsSummary | undefined {
+    const onboardingEvents = events.filter((event) =>
+      event.type.startsWith('onboarding_')
+    );
+
+    if (onboardingEvents.length === 0) {
+      return undefined;
+    }
+
+    let totalSessions = 0;
+    let completedSessions = 0;
+    let skipCount = 0;
+    let abandonCount = 0;
+    const durations: number[] = [];
+    const sourceBreakdown: Record<string, number> = {};
+    const stepMap = new Map<number, { views: number; stepTitle?: string }>();
+
+    let glossaryOpenCount = 0;
+    const glossaryOpenBySource: Record<string, number> = {};
+    let glossarySearchCount = 0;
+    const queryMap = new Map<string, { count: number; totalResults: number }>();
+
+    let feedbackSubmissions = 0;
+    let ratingSum = 0;
+    const recentComments: Array<{
+      rating: number;
+      comment: string;
+      submittedAt: string;
+    }> = [];
+
+    onboardingEvents.forEach((event) => {
+      const sourceKey = event.data.onboardingSource || 'unknown';
+      const duration = event.data.duration;
+      const timestamp = event.timestamp instanceof Date
+        ? event.timestamp.toISOString()
+        : new Date(event.timestamp).toISOString();
+
+      switch (event.type) {
+        case 'onboarding_start': {
+          totalSessions += 1;
+          sourceBreakdown[sourceKey] = (sourceBreakdown[sourceKey] || 0) + 1;
+          break;
+        }
+        case 'onboarding_complete': {
+          completedSessions += 1;
+          if (typeof duration === 'number' && duration > 0) {
+            durations.push(duration);
+          }
+          break;
+        }
+        case 'onboarding_skip': {
+          skipCount += 1;
+          if (typeof duration === 'number' && duration > 0) {
+            durations.push(duration);
+          }
+          break;
+        }
+        case 'onboarding_abandon': {
+          abandonCount += 1;
+          if (typeof duration === 'number' && duration > 0) {
+            durations.push(duration);
+          }
+          break;
+        }
+        case 'onboarding_step': {
+          if (typeof event.data.stepIndex === 'number') {
+            const existing = stepMap.get(event.data.stepIndex) || {
+              views: 0,
+              stepTitle: event.data.stepTitle,
+            };
+            existing.views += 1;
+            if (!existing.stepTitle && event.data.stepTitle) {
+              existing.stepTitle = event.data.stepTitle;
+            }
+            stepMap.set(event.data.stepIndex, existing);
+          }
+          break;
+        }
+        case 'onboarding_glossary_open': {
+          glossaryOpenCount += 1;
+          glossaryOpenBySource[sourceKey] =
+            (glossaryOpenBySource[sourceKey] || 0) + 1;
+          break;
+        }
+        case 'onboarding_glossary_search': {
+          glossarySearchCount += 1;
+          const query = (event.data.query || '').trim();
+          if (query) {
+            const item = queryMap.get(query) || { count: 0, totalResults: 0 };
+            item.count += 1;
+            if (typeof event.data.resultsCount === 'number') {
+              item.totalResults += event.data.resultsCount;
+            }
+            queryMap.set(query, item);
+          }
+          break;
+        }
+        case 'onboarding_feedback_submit': {
+          feedbackSubmissions += 1;
+          if (typeof event.data.rating === 'number') {
+            ratingSum += event.data.rating;
+          }
+          const comment = (event.data.comment || '').trim();
+          if (comment) {
+            recentComments.push({
+              rating: typeof event.data.rating === 'number' ? event.data.rating : 0,
+              comment,
+              submittedAt: timestamp,
+            });
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    });
+
+    const averageDurationMs =
+      durations.length > 0
+        ? durations.reduce((sum, value) => sum + value, 0) / durations.length
+        : 0;
+
+    const topQueries = Array.from(queryMap.entries())
+      .map(([query, value]) => ({
+        query,
+        count: value.count,
+        averageResults:
+          value.count > 0 ? value.totalResults / value.count : 0,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    recentComments.sort((a, b) =>
+      a.submittedAt < b.submittedAt ? 1 : a.submittedAt > b.submittedAt ? -1 : 0
+    );
+
+    return {
+      totalSessions,
+      completedSessions,
+      completionRate: totalSessions > 0 ? completedSessions / totalSessions : 0,
+      skipCount,
+      abandonCount,
+      averageDurationMs,
+      sourceBreakdown,
+      stepProgression: Array.from(stepMap.entries())
+        .map(([stepIndex, value]) => ({
+          stepIndex,
+          views: value.views,
+          stepTitle: value.stepTitle,
+        }))
+        .sort((a, b) => a.stepIndex - b.stepIndex),
+      glossary: {
+        openCount: glossaryOpenCount,
+        openBySource: glossaryOpenBySource,
+        searchCount: glossarySearchCount,
+        topQueries,
+      },
+      feedback: {
+        submissions: feedbackSubmissions,
+        averageRating:
+          feedbackSubmissions > 0 ? ratingSum / feedbackSubmissions : 0,
+        recentComments: recentComments.slice(0, 5),
+      },
     };
   }
 

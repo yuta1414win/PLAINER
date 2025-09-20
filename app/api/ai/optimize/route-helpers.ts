@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { StepOptimizer } from '@/lib/ai/step-optimizer';
 import {
@@ -52,28 +53,40 @@ export interface RateLimitStatus {
   retryAfterSeconds?: number;
 }
 
-export function checkRateLimit(clientId: string): RateLimitStatus {
+export interface RateLimitOptions {
+  bucketId?: string;
+  maxRequests?: number;
+  windowMs?: number;
+}
+
+export function checkRateLimit(
+  clientId: string,
+  options: RateLimitOptions = {}
+): RateLimitStatus {
   const now = Date.now();
-  const clientData = RATE_LIMIT.requestCounts.get(clientId);
+  const bucketId = options.bucketId ?? clientId;
+  const limit = options.maxRequests ?? RATE_LIMIT.maxRequests;
+  const windowMs = options.windowMs ?? RATE_LIMIT.windowMs;
+  const clientData = RATE_LIMIT.requestCounts.get(bucketId);
 
   if (!clientData || now > clientData.resetTime) {
-    RATE_LIMIT.requestCounts.set(clientId, {
+    RATE_LIMIT.requestCounts.set(bucketId, {
       count: 1,
-      resetTime: now + RATE_LIMIT.windowMs,
+      resetTime: now + windowMs,
     });
     return {
       allowed: true,
-      limit: RATE_LIMIT.maxRequests,
-      remaining: RATE_LIMIT.maxRequests - 1,
-      reset: now + RATE_LIMIT.windowMs,
+      limit,
+      remaining: Math.max(0, limit - 1),
+      reset: now + windowMs,
     };
   }
 
-  if (clientData.count >= RATE_LIMIT.maxRequests) {
+  if (clientData.count >= limit) {
     const retryAfterMs = Math.max(0, clientData.resetTime - now);
     return {
       allowed: false,
-      limit: RATE_LIMIT.maxRequests,
+      limit,
       remaining: 0,
       reset: clientData.resetTime,
       retryAfterSeconds: Math.ceil(retryAfterMs / 1000),
@@ -83,8 +96,8 @@ export function checkRateLimit(clientId: string): RateLimitStatus {
   clientData.count += 1;
   return {
     allowed: true,
-    limit: RATE_LIMIT.maxRequests,
-    remaining: Math.max(0, RATE_LIMIT.maxRequests - clientData.count),
+    limit,
+    remaining: Math.max(0, limit - clientData.count),
     reset: clientData.resetTime,
   };
 }
@@ -214,22 +227,54 @@ export async function handleStreamingResponse(
   });
 }
 
-export function getClientIdFromRequest(request: NextRequest): string {
-  const headerFirst = (value: string | null) => {
-    if (!value) return undefined;
-    const parts = value
-      .split(',')
-      .map((part) => part.trim())
-      .filter(Boolean);
-    return parts[0];
-  };
+const headerFirst = (value: string | null) => {
+  if (!value) return undefined;
+  const parts = value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return parts[0];
+};
 
-  return (
-    headerFirst(request.headers.get('cf-connecting-ip')) ||
-    headerFirst(request.headers.get('x-forwarded-for')) ||
-    request.headers.get('x-real-ip') ||
-    'unknown'
-  );
+export function getClientIdFromRequest(request: NextRequest): string {
+  const explicitClientId =
+    request.headers.get('x-plainer-client-id') ||
+    request.headers.get('x-client-id');
+  if (explicitClientId) {
+    return explicitClientId.trim();
+  }
+
+  const cookieClientId = request.cookies.get('plainer_client_id')?.value;
+  if (cookieClientId) {
+    return cookieClientId;
+  }
+
+  const ipLikeValues = [
+    headerFirst(request.headers.get('cf-connecting-ip')),
+    headerFirst(request.headers.get('x-forwarded-for')),
+    headerFirst(request.headers.get('x-real-ip')),
+    headerFirst(request.headers.get('x-client-ip')),
+    headerFirst(request.headers.get('x-cluster-client-ip')),
+    request.ip ?? undefined,
+  ].filter(Boolean) as string[];
+
+  if (ipLikeValues.length > 0) {
+    return ipLikeValues[0];
+  }
+
+  const fingerprintSource = [
+    request.headers.get('user-agent') ?? '',
+    request.headers.get('accept-language') ?? '',
+    request.headers.get('sec-ch-ua') ?? '',
+    request.headers.get('sec-ch-ua-platform') ?? '',
+    request.headers.get('referer') ?? '',
+  ].join('|');
+
+  if (fingerprintSource.trim().length === 0) {
+    return 'anonymous';
+  }
+
+  return createHash('sha256').update(fingerprintSource).digest('hex').slice(0, 16);
 }
 
 const DEFAULT_ALLOWED_ORIGIN = '*';

@@ -19,6 +19,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { LiveMessage } from '@/lib/types';
 
 interface Message {
   id: string;
@@ -45,17 +46,110 @@ const EXAMPLE_PROMPTS = [
   '手順説明のための注釈を最適化',
 ];
 
+type LiveMessagePayload = Partial<LiveMessage> & {
+  timestamp?: string | number | Date;
+  type?: LiveMessage['type'];
+};
+
+const SESSION_STORAGE_KEY = 'plainer_live_session_id';
+
 export function AIAssistant({
   onSuggestionApply,
   context,
   className,
 }: AIAssistantProps) {
+  const ENABLE_STREAMING = true;
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const clientIdRef = useRef<string | null>(null);
+  const startSessionPromiseRef = useRef<Promise<string | null> | null>(null);
+  const sessionRetryAtRef = useRef<number>(0);
+
+  const ensureClientId = useCallback(() => {
+    if (clientIdRef.current) return clientIdRef.current;
+    if (typeof window === 'undefined') return null;
+
+    const storageKey = 'plainer_client_id';
+    try {
+      let stored = window.localStorage.getItem(storageKey);
+      if (!stored) {
+        if (typeof window.crypto?.randomUUID === 'function') {
+          stored = window.crypto.randomUUID();
+        } else {
+          stored = `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        }
+        window.localStorage.setItem(storageKey, stored);
+      }
+
+      document.cookie = `plainer_client_id=${stored}; path=/; max-age=31536000; SameSite=Lax`;
+      clientIdRef.current = stored;
+      return stored;
+    } catch (error) {
+      console.warn('Failed to resolve client identifier', error);
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    ensureClientId();
+  }, [ensureClientId]);
+
+  const transformLiveMessage = useCallback((live?: LiveMessagePayload): Message => {
+    const role: Message['role'] = live?.type === 'user' ? 'user' : 'assistant';
+    return {
+      id: live?.id ?? `msg-${Date.now()}`,
+      role,
+      content: live?.content ?? '',
+      timestamp:
+        live?.timestamp instanceof Date
+          ? live.timestamp
+          : new Date(live?.timestamp ?? Date.now()),
+      status: live?.type === 'error' ? 'error' : 'sent',
+    };
+  }, []);
+
+  const restoreSession = useCallback(async () => {
+    if (typeof window === 'undefined') return null;
+    const storedSessionId = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!storedSessionId) return null;
+
+    const clientId = ensureClientId();
+    try {
+      const response = await fetch(`/api/ai/live/session/${storedSessionId}`, {
+        method: 'GET',
+        headers: {
+          ...(clientId ? { 'x-plainer-client-id': clientId } : {}),
+          'x-plainer-session-id': storedSessionId,
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          window.localStorage.removeItem(SESSION_STORAGE_KEY);
+        }
+        return null;
+      }
+
+      const data = await response.json();
+      const sessionMessages = Array.isArray(data?.session?.messages)
+        ? (data.session.messages as LiveMessagePayload[])
+        : [];
+
+      setSessionId(storedSessionId);
+      if (sessionMessages.length) {
+        setMessages(sessionMessages.map(transformLiveMessage));
+      }
+      sessionRetryAtRef.current = 0;
+      return storedSessionId;
+    } catch (error) {
+      console.error('Failed to restore AI session:', error);
+      return null;
+    }
+  }, [ensureClientId, transformLiveMessage]);
 
   // スクロールを最下部に移動
   const scrollToBottom = useCallback(() => {
@@ -76,83 +170,407 @@ export function AIAssistant({
 
   // セッション開始
   const startSession = useCallback(async () => {
-    try {
-      // TODO: Live APIセッション開始実装
-      const newSessionId = `session-${Date.now()}`;
-      setSessionId(newSessionId);
-
-      // 歓迎メッセージ
-      const welcomeMessage: Message = {
-        id: `msg-${Date.now()}`,
-        role: 'assistant',
-        content:
-          'こんにちは！ガイド作成をお手伝いします。画像の説明、注釈の追加、CTAの最適化など、お気軽にお尋ねください。',
-        timestamp: new Date(),
-        status: 'sent',
-      };
-      setMessages([welcomeMessage]);
-    } catch (error) {
-      console.error('Failed to start AI session:', error);
+    if (sessionId) return sessionId;
+    if (startSessionPromiseRef.current) {
+      return startSessionPromiseRef.current;
     }
-  }, []);
+
+    const now = Date.now();
+    if (sessionRetryAtRef.current > now) {
+      return null;
+    }
+
+    const promise = (async (): Promise<string | null> => {
+      try {
+        const restored = await restoreSession();
+        if (restored) {
+          return restored;
+        }
+
+        const clientId = ensureClientId();
+        const candidateSessionId =
+          typeof window === 'undefined'
+            ? undefined
+            : window.localStorage.getItem(SESSION_STORAGE_KEY) ?? undefined;
+
+        const response = await fetch('/api/ai/live/session', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(clientId ? { 'x-plainer-client-id': clientId } : {}),
+            ...(candidateSessionId
+              ? { 'x-plainer-session-id': candidateSessionId }
+              : {}),
+          },
+          body: JSON.stringify({
+            clientInfo: 'web-client',
+            metadata: {
+              currentStep: context?.currentStep,
+              totalSteps: context?.totalSteps,
+              selectedElement: context?.selectedElement,
+            },
+          }),
+        });
+
+        if (!response.ok) {
+          if (response.status === 429) {
+            const retryAfterHeader = response.headers.get('Retry-After');
+            const retryAfterSeconds = retryAfterHeader
+              ? Number.parseInt(retryAfterHeader, 10)
+              : undefined;
+            if (retryAfterSeconds && Number.isFinite(retryAfterSeconds)) {
+              sessionRetryAtRef.current = Date.now() + retryAfterSeconds * 1000;
+            } else {
+              sessionRetryAtRef.current = Date.now() + 10_000;
+            }
+          }
+          throw new Error(`Failed to start session: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const newSessionId = data?.session?.id as string | undefined;
+        if (!newSessionId) {
+          throw new Error('Session ID missing in response');
+        }
+
+        setSessionId(newSessionId);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(SESSION_STORAGE_KEY, newSessionId);
+        }
+
+        const initialMessages = Array.isArray(data?.session?.messages)
+          ? (data.session.messages as LiveMessagePayload[])
+          : data?.welcomeMessage
+          ? [data.welcomeMessage]
+          : [];
+
+        if (initialMessages?.length) {
+          setMessages(initialMessages.map(transformLiveMessage));
+        }
+
+        sessionRetryAtRef.current = 0;
+        return newSessionId;
+      } catch (error) {
+        console.error('Failed to start AI session:', error);
+        setMessages((prev) => {
+          const alreadyErrored = prev.some((message) =>
+            message.content?.includes('セッションの開始に失敗しました')
+          );
+          if (alreadyErrored) {
+            return prev;
+          }
+          return [
+            {
+              id: `msg-${Date.now()}-error`,
+              role: 'assistant',
+              content:
+                'セッションの開始に失敗しました。ページを再読み込みするか、しばらく待ってから再度お試しください。',
+              timestamp: new Date(),
+              status: 'error',
+            },
+          ];
+        });
+        return null;
+      }
+    })();
+
+    startSessionPromiseRef.current = promise;
+    try {
+      return await promise;
+    } finally {
+      startSessionPromiseRef.current = null;
+    }
+  }, [
+    context?.currentStep,
+    context?.selectedElement,
+    context?.totalSteps,
+    ensureClientId,
+    restoreSession,
+    sessionId,
+    transformLiveMessage,
+  ]);
 
   // セッション終了
   const endSession = useCallback(async () => {
     try {
-      // TODO: Live APIセッション終了実装
+      if (!sessionId) return;
+      const clientId = ensureClientId();
+      await fetch(`/api/ai/live/session/${sessionId}`, {
+        method: 'DELETE',
+        headers: {
+          ...(clientId ? { 'x-plainer-client-id': clientId } : {}),
+          'x-plainer-session-id': sessionId,
+        },
+      });
       setSessionId(null);
       setMessages([]);
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      }
+      sessionRetryAtRef.current = 0;
+      startSessionPromiseRef.current = null;
     } catch (error) {
       console.error('Failed to end AI session:', error);
     }
-  }, []);
+  }, [ensureClientId, sessionId]);
 
   // メッセージ送信
   const sendMessage = useCallback(
     async (content: string) => {
       if (!content.trim() || isLoading) return;
 
+      const ensureSession = async () => {
+        if (sessionId) return sessionId;
+        return await startSession();
+      };
+
+      const activeSession = await ensureSession();
+      if (!activeSession) {
+        return;
+      }
+
+      const userMessageId = `msg-${Date.now()}`;
+      const assistantMessageId = `${userMessageId}-assistant`;
+
       const userMessage: Message = {
-        id: `msg-${Date.now()}`,
+        id: userMessageId,
         role: 'user',
         content: content.trim(),
         timestamp: new Date(),
         status: 'sent',
       };
 
-      setMessages((prev) => [...prev, userMessage]);
+      const assistantPlaceholder: Message = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        status: 'sending',
+      };
+
+      setMessages((prev) => [...prev, userMessage, assistantPlaceholder]);
       setInputValue('');
       setIsLoading(true);
 
-      try {
-        // TODO: Live API実装
-        // 仮の応答をシミュレート
-        setTimeout(() => {
-          const assistantMessage: Message = {
-            id: `msg-${Date.now()}-assistant`,
-            role: 'assistant',
-            content: `「${content}」について理解しました。Live APIが実装されると、より詳細な回答を提供できます。現在はデモンストレーション用の応答です。`,
-            timestamp: new Date(),
-            status: 'sent',
-          };
-          setMessages((prev) => [...prev, assistantMessage]);
+      const updateMessage = (id: string, updater: (message: Message) => Message) => {
+        setMessages((prev) =>
+          prev.map((message) => (message.id === id ? updater(message) : message))
+        );
+      };
+
+      const handleStreaming = async () => {
+        const clientId = ensureClientId();
+        const response = await fetch(
+          `/api/ai/live/session/${activeSession}/messages/stream`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(clientId ? { 'x-plainer-client-id': clientId } : {}),
+              'x-plainer-session-id': activeSession,
+            },
+            body: JSON.stringify({
+              content: content.trim(),
+              context: {
+                currentStep: context?.currentStep,
+                totalSteps: context?.totalSteps,
+                selectedElement: context?.selectedElement,
+              },
+            }),
+          }
+        );
+
+        if (!response.ok || !response.body) {
+          throw new Error(`Live API streaming failed with ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let aggregated = '';
+        let resolved = false;
+
+        const handleDelta = (delta: string) => {
+          aggregated += delta;
+          updateMessage(assistantMessageId, (message) => ({
+            ...message,
+            content: aggregated,
+          }));
+        };
+
+        const handleComplete = (payload: unknown) => {
+          const finalMessage = transformLiveMessage(
+            (payload as { assistantMessage?: LiveMessagePayload })?.assistantMessage
+          );
+          updateMessage(assistantMessageId, () => ({
+            ...finalMessage,
+            content:
+              finalMessage.content && finalMessage.content.length > 0
+                ? finalMessage.content
+                : aggregated,
+            status: finalMessage.status ?? 'sent',
+          }));
+          resolved = true;
           setIsLoading(false);
-        }, 1500);
+        };
+
+        const handleError = (payload: unknown) => {
+          const errorMessage = transformLiveMessage(
+            (payload as { assistantMessage?: LiveMessagePayload })?.assistantMessage
+          );
+          updateMessage(assistantMessageId, (message) => ({
+            ...message,
+            content:
+              errorMessage.content ||
+              aggregated ||
+              'すみません、エラーが発生しました。しばらく待ってから再度お試しください。',
+            status: 'error',
+          }));
+          resolved = true;
+          setIsLoading(false);
+        };
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          while (true) {
+            const separatorIndex = buffer.indexOf('\n\n');
+            if (separatorIndex === -1) break;
+
+            const rawEvent = buffer.slice(0, separatorIndex);
+            buffer = buffer.slice(separatorIndex + 2);
+
+            if (!rawEvent.trim()) continue;
+
+            const lines = rawEvent.split('\n');
+            let eventName = 'message';
+            const dataLines: string[] = [];
+
+            for (const line of lines) {
+              if (line.startsWith('event:')) {
+                eventName = line.slice('event:'.length).trim();
+              } else if (line.startsWith('data:')) {
+                dataLines.push(line.slice('data:'.length).trim());
+              }
+            }
+
+            const dataString = dataLines.join('\n');
+            const payload = dataString ? JSON.parse(dataString) : null;
+
+            switch (eventName) {
+              case 'delta':
+                if (payload?.content) {
+                  handleDelta(String(payload.content));
+                }
+                break;
+              case 'complete':
+                handleComplete(payload);
+                break;
+              case 'error':
+                handleError(payload);
+                break;
+              default:
+                break;
+            }
+          }
+        }
+
+        if (!resolved) {
+          updateMessage(assistantMessageId, (message) => ({
+            ...message,
+            status: 'error',
+            content:
+              message.content ||
+              'すみません、応答が途中で終了しました。もう一度お試しください。',
+          }));
+          setIsLoading(false);
+        }
+      };
+
+      const handleNonStreaming = async () => {
+        const clientId = ensureClientId();
+        const response = await fetch(
+          `/api/ai/live/session/${activeSession}/messages`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(clientId ? { 'x-plainer-client-id': clientId } : {}),
+              'x-plainer-session-id': activeSession,
+            },
+            body: JSON.stringify({
+              content: content.trim(),
+              context: {
+                currentStep: context?.currentStep,
+                totalSteps: context?.totalSteps,
+                selectedElement: context?.selectedElement,
+              },
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`Live API responded with ${response.status}`);
+        }
+
+        const data = await response.json();
+        const assistantMessage = transformLiveMessage(data?.assistantMessage);
+
+        updateMessage(assistantMessageId, () => ({
+          ...assistantMessage,
+          status: assistantMessage.status ?? 'sent',
+        }));
+        setIsLoading(false);
+      };
+
+      try {
+        if (ENABLE_STREAMING) {
+          await handleStreaming();
+        } else {
+          await handleNonStreaming();
+        }
       } catch (error) {
         console.error('Failed to send message:', error);
 
-        const errorMessage: Message = {
-          id: `msg-${Date.now()}-error`,
-          role: 'assistant',
-          content: 'すみません、エラーが発生しました。もう一度お試しください。',
-          timestamp: new Date(),
+        if (ENABLE_STREAMING) {
+          try {
+            await handleNonStreaming();
+            return;
+          } catch (fallbackError) {
+            console.error('Fallback send failed:', fallbackError);
+          }
+        }
+
+        updateMessage(userMessageId, (message) => ({
+          ...message,
           status: 'error',
-        };
-        setMessages((prev) => [...prev, errorMessage]);
+        }));
+
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          content:
+            message.content ||
+            'すみません、エラーが発生しました。しばらく待ってから再度お試しください。',
+          status: 'error',
+        }));
         setIsLoading(false);
+        return;
       }
+
+      setIsLoading(false);
     },
-    [isLoading]
+    [
+      ENABLE_STREAMING,
+      context,
+      ensureClientId,
+      isLoading,
+      sessionId,
+      startSession,
+      transformLiveMessage,
+    ]
   );
 
   // フォーム送信
@@ -183,14 +601,9 @@ export function AIAssistant({
   // 初期化
   useEffect(() => {
     if (!sessionId) {
-      startSession();
+      void startSession();
     }
-    return () => {
-      if (sessionId) {
-        endSession();
-      }
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionId, startSession]);
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
